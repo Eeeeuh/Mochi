@@ -281,3 +281,23 @@ textarea.input { min-height: 90px; resize: vertical; }
 .notes-filter { display: flex; gap: 7px; margin-bottom: 10px; }
 .note .name { font-weight: 700; white-space: pre-wrap; }
 .pin { color: var(--gold); }
+
+/* ---------- étapes, petit jour, semaine ---------- */
+.taskwrap { display: flex; flex-direction: column; }
+.steps-list { margin: -6px 10px 0; padding: 14px 10px 6px; background: var(--bg2); border-radius: 0 0 16px 16px; display: flex; flex-direction: column; gap: 2px; }
+.step { display: flex; align-items: center; gap: 10px; text-align: left; padding: 8px 6px; font-weight: 700; font-size: 14px; border-radius: 10px; }
+.step .sbox { width: 22px; height: 22px; border-radius: 7px; border: 2px solid #cfc3e3; display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 900; flex: none; }
+.step.on { color: var(--ink-soft); text-decoration: line-through; }
+.step.on .sbox { background: var(--mint); border-color: var(--mint); }
+.badday { display: flex; align-items: center; gap: 12px; background: var(--peach-soft); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; color: #6b3a2a; }
+.badday > span { font-size: 26px; }
+.badday > div { flex: 1; } .badday p { margin: 2px 0 0; }
+.badday .btn { padding: 8px 12px; font-size: 13px; }
+.linkbtn { display: block; width: 100%; text-align: left; color: var(--ink-soft); font-weight: 700; font-size: 13px; padding: 4px 2px 12px; }
+.week { display: flex; gap: 8px; background: var(--card); border-radius: var(--radius); padding: 14px 12px 10px; box-shadow: var(--shadow); }
+.wcol { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.wnum { font-size: 12px; font-weight: 800; height: 14px; color: var(--ink-soft); }
+.wbar { width: 100%; max-width: 28px; height: 84px; background: var(--accent-soft); border-radius: 9px; display: flex; align-items: flex-end; overflow: hidden; }
+.wbar i { display: block; width: 100%; background: #b3a3f0; border-radius: 9px; min-height: 0; }
+.wbar i.today { background: var(--accent); }
+.wday { font-size: 12px; font-weight: 700; color: var(--ink-soft); text-transform: capitalize; }

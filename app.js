@@ -23,6 +23,23 @@ const DAYS_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi'
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 const vibrate = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
 
+// ---------------------------------------------------------------- sons doux (WebAudio, pas de fichiers)
+let audioCtx;
+function sfx(kind) {
+  if (S.settings.sound === false) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const notes = kind === 'level' ? [523, 659, 784, 1047] : kind === 'step' ? [660] : kind === 'undo' ? [440] : [587, 880];
+    notes.forEach((f, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime + i * .09;
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.12, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + .38);
+      o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + .4);
+    });
+  } catch (e) {}
+}
+
 // ---------------------------------------------------------------- data
 const KEY = 'mochi.v1';
 const SIZES = { 1: { xp: 10, c: 2, label: 'Petite', ic: '🌱' }, 2: { xp: 20, c: 4, label: 'Moyenne', ic: '🌿' }, 3: { xp: 35, c: 7, label: 'Grosse', ic: '🌳' } };
@@ -78,7 +95,8 @@ function defaults() {
     pet: { name: 'Mochi', color: 'lilac', eq: {} },
     owned: ['lilac'], xp: 0, coins: 0,
     tasks: [], notes: [], log: {}, bonus: {},
-    settings: { server: 'https://ntfy.sh', topic: '', enabled: false, recapOn: true, recap: '08:30' },
+    settings: { server: 'https://ntfy.sh', topic: '', enabled: false, recapOn: true, recap: '08:30', sound: true },
+    stepLog: {}, badDay: null,
     sched: {},
   };
 }
@@ -120,8 +138,15 @@ function lateDays(t, k) {
   if (t.rec.type === 'once') return diffDays(t.rec.date, k);
   return 0;
 }
+const isBadDay = (k = dkey()) => S.badDay === k;
 function todayTasks(k = dkey()) {
-  return S.tasks.filter(t => isDue(t, k) || isDoneOn(t, k)).sort((a, b) => {
+  let base = S.tasks.filter(t => isDue(t, k) || isDoneOn(t, k));
+  if (isBadDay(k)) { // mode petit jour : seulement l'essentiel (tâches marquées, sinon les 3 plus légères)
+    const ess = base.filter(t => t.essential);
+    const keep = new Set((ess.length ? ess : [...base].sort((a, b) => a.size - b.size).slice(0, 3)).map(t => t.id));
+    base = base.filter(t => keep.has(t.id) || isDoneOn(t, k));
+  }
+  return base.sort((a, b) => {
     const da = isDoneOn(a, k), db = isDoneOn(b, k);
     if (da !== db) return da ? 1 : -1;
     if (!!a.time !== !!b.time) return a.time ? -1 : 1;
@@ -146,6 +171,7 @@ function completeTask(id, k = dkey(), fromEl) {
   if (!t.last || t.last < k) t.last = k;
   if (t.rec.type === 'once') t.doneAt = k;
   t.count = (t.count || 0) + 1;
+  sfx('done');
   reward(sz.xp, sz.c, fromEl);
   checkBonus(k);
   save(); scheduleSync();
@@ -159,12 +185,13 @@ function uncompleteTask(id, k = dkey()) {
   arr.splice(i, 1);
   if (t) { t.last = e.prev; t.doneAt = e.prevDone; t.count = Math.max(0, (t.count || 1) - 1); }
   S.xp = Math.max(0, S.xp - e.xp); S.coins = Math.max(0, S.coins - e.c);
+  if (S.stepLog && S.stepLog[k]) delete S.stepLog[k][id];
   save(); scheduleSync();
 }
 function checkBonus(k) {
   if (S.bonus[k]) return;
   const list = todayTasks(k);
-  if (list.length >= 3 && list.every(t => isDoneOn(t, k))) {
+  if (list.length >= (isBadDay(k) ? 1 : 3) && list.every(t => isDoneOn(t, k))) {
     S.bonus[k] = true;
     setTimeout(() => { reward(BONUS_XP, BONUS_C); toast(`🌈 Journée complète ! +${BONUS_XP} XP bonus`); confetti(60); }, 700);
   }
@@ -178,6 +205,18 @@ function reward(xp, c, fromEl) {
   const after = levelInfo().lvl;
   if (after > before) setTimeout(() => levelUp(before, after), 650);
   refreshHeader();
+}
+
+// ---------------------------------------------------------------- étapes
+const stepsDone = (t, k) => ((S.stepLog || {})[k] || {})[t.id] || [];
+function toggleStep(id, i, k = dkey()) {
+  const t = S.tasks.find(x => x.id === id); if (!t || !t.steps) return;
+  S.stepLog = S.stepLog || {};
+  const m = (S.stepLog[k] = S.stepLog[k] || {}), arr = (m[id] = m[id] || []), pos = arr.indexOf(i);
+  if (pos >= 0) arr.splice(pos, 1); else arr.push(i);
+  save(); sfx(pos >= 0 ? 'undo' : 'step'); vibrate(10);
+  if (pos < 0 && arr.length >= t.steps.length) { completeTask(id, k); confetti(25); }
+  render();
 }
 
 // ---------------------------------------------------------------- streak / stats
@@ -346,6 +385,8 @@ function viewToday() {
     ${list.length && done < list.length ? `<button class="one-thing" data-act="focus"><span class="big">🎯</span><div><b>Juste une chose</b><span>Je te choisis une tâche, tu fais 5 minutes. C'est tout.</span></div></button>` : ''}
   </div>
   <div class="section">
+    ${isBadDay(k) ? `<div class="badday"><span>🌧️</span><div><b>Petit jour</b><p class="small">Seulement l'essentiel aujourd'hui. Le reste peut attendre, vraiment.</p></div><button class="btn ghost" data-act="badday">Revenir</button></div>`
+      : `<button class="linkbtn" data-act="badday">🌧️ Journée difficile ? Ne garder que l'essentiel</button>`}
     <div class="section-head"><h2>Aujourd'hui</h2><span class="sub">${done}/${list.length} fait${done > 1 ? 's' : ''}</span></div>
     ${list.length ? `<div class="list">${list.map(t => taskItem(t, k)).join('')}</div>`
       : `<div class="empty"><div class="big">🌤️</div><b>Rien de prévu aujourd'hui</b><p class="small">Ajoute une routine avec le bouton +, ou profite 😌</p></div>`}
@@ -359,9 +400,12 @@ function taskItem(t, k) {
   if (t.time) meta.push(`<span class="tag">⏰ ${t.time}</span>`);
   if (late > 0) meta.push(`<span class="tag late">en attente depuis ${late} j</span>`);
   meta.push(`<span class="tag xp">+${sz.xp} XP</span>`);
-  return `<div class="item ${done ? 'done' : ''}" data-act="toggle" data-id="${t.id}">
+  const st = t.steps || [], sd = stepsDone(t, k);
+  if (st.length && !done) meta.unshift(`<span class="tag">${sd.length}/${st.length} étapes</span>`);
+  const sub = st.length && !done ? `<div class="steps-list">${st.map((x, i) => `<button class="step ${sd.includes(i) ? 'on' : ''}" data-act="step" data-id="${t.id}" data-i="${i}"><span class="sbox">${sd.includes(i) ? '✓' : ''}</span>${esc(x)}</button>`).join('')}</div>` : '';
+  return `<div class="taskwrap"><div class="item ${done ? 'done' : ''}" data-act="toggle" data-id="${t.id}">
     <span class="emoji">${t.emoji}</span><div class="txt"><div class="name">${esc(t.name)}</div><div class="meta">${meta.join('')}</div></div>
-    <span class="check">✓</span></div>`;
+    <span class="check">✓</span></div>${sub}</div>`;
 }
 function noteItem(n) {
   const meta = [];
@@ -417,6 +461,7 @@ function viewPet() {
     <div class="stat"><b>✅ ${totalDone()}</b><span>tâches faites</span></div>
     <div class="stat"><b>📅 ${activeDays().length}</b><span>jours actifs</span></div>
   </div></div>
+  <div class="section"><div class="section-head"><h2>Ta semaine</h2><span class="sub">tâches faites par jour</span></div>${weekChart()}</div>
   <div class="section"><div class="section-head"><h2>Accessoires</h2><span class="sub">🪙 ${S.coins}</span></div>
     <div class="grid">${Object.entries(ITEMS).map(([id, it]) => {
       const own = S.owned.includes(id), on = S.pet.eq[it.slot] === id;
@@ -429,6 +474,11 @@ function viewPet() {
     }).join('')}</div></div>
   <div class="section"><p class="small muted" style="text-align:center">💜 ${esc(S.pet.name)} ne tombe jamais malade et ne t'en veut jamais. Si tu disparais quelques jours, il dort simplement en t'attendant.</p></div>`;
 }
+function weekChart() {
+  const k0 = dkey(), days = Array.from({ length: 7 }, (_, i) => addDays(k0, i - 6));
+  const vals = days.map(k => (S.log[k] || []).length), max = Math.max(3, ...vals);
+  return `<div class="week">${days.map((k, i) => `<div class="wcol"><div class="wnum">${vals[i] || ''}</div><div class="wbar"><i style="height:${Math.round(vals[i] / max * 100)}%" class="${k === k0 ? 'today' : ''}"></i></div><div class="wday">${DAYS[parseKey(k).getDay()].slice(0, 2)}</div></div>`).join('')}</div>`;
+}
 function viewSettings() {
   const s = S.settings, ok = s.enabled && s.topic;
   const host = s.server.replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -436,6 +486,9 @@ function viewSettings() {
   <div class="section">
     <div class="card"><h4>🐣 Ton compagnon</h4>
       <div class="field"><label>Son nom</label><input class="input" id="petname" maxlength="16" value="${esc(S.pet.name)}"></div></div>
+
+    <div class="card"><h4>🔊 Sons</h4>
+      <div class="toggle"><span>Petits sons doux</span><button class="switch ${S.settings.sound !== false ? 'on' : ''}" data-act="toggle-sound"></button></div></div>
 
     <div class="card"><h4>🔔 Notifications <span class="small muted">(via ntfy)</span></h4>
       <p class="small"><span class="status-dot ${ok ? 'ok' : 'warn'}"></span>${ok ? `Activées · ${Object.keys(S.sched).length} rappel(s) programmé(s)` : 'Pas encore activées'}</p>
@@ -509,6 +562,9 @@ function taskSheet(t) {
       <p class="hint">Compté depuis la dernière fois que tu l'as fait. Si tu oublies, elle t'attend gentiment.</p></div>
     <div class="field" data-show="once"><label>Quel jour ?</label><input class="input" type="date" id="odate" value="${r.date}"></div>
     <div class="field"><label>Rappel (optionnel)</label><input class="input" type="time" id="ttime" value="${t.time || ''}"></div>
+    <div class="field"><label>Étapes (optionnel)</label><textarea class="input" id="tsteps" maxlength="400" placeholder="Une étape par ligne :&#10;Vider l'évier&#10;Laver&#10;Essuyer" style="min-height:84px">${esc((t.steps || []).join('\n'))}</textarea>
+      <p class="hint">Une grosse tâche en petits pas, c'est moins lourd à démarrer.</p></div>
+    <div class="toggle"><span>⭐ Essentielle les jours difficiles</span><button type="button" class="switch ${t.essential ? 'on' : ''}" id="tess"></button></div>
     <div class="field"><label>Effort</label>${chipGroup('size', Object.entries(SIZES).map(([k, s]) => [k, `${s.ic} ${s.label} · ${s.xp} XP`]), String(t.size))}</div>
     <div class="sheet-actions">${isNew ? '' : '<button class="btn danger" data-act="del-task">Supprimer</button>'}<button class="btn" data-act="save-task">${isNew ? 'Ajouter' : 'Enregistrer'}</button></div>`,
   sh => {
@@ -516,6 +572,7 @@ function taskSheet(t) {
     bindChips(sh, sync); sync();
     $('.emoji-pick', sh).onclick = e => { const b = e.target.closest('button'); if (!b) return; $$('.emoji-pick button', sh).forEach(x => x.classList.remove('on')); b.classList.add('on'); };
     if (isNew) setTimeout(() => $('#tname').focus(), 300);
+    $('#tess').onclick = e => e.currentTarget.classList.toggle('on');
     sh.onclick = e => {
       const a = e.target.closest('[data-act]'); if (!a) return;
       if (a.dataset.act === 'del-task') {
@@ -528,7 +585,8 @@ function taskSheet(t) {
         if (type === 'weekly') { rec.days = chipVal(sh, 'days').map(Number); if (!rec.days.length) return toast('Choisis au moins un jour'); }
         if (type === 'interval') rec.every = Math.max(1, Math.min(60, parseInt($('#every').value) || 1));
         if (type === 'once') rec.date = $('#odate').value || dkey();
-        const data = { emoji: $('.emoji-pick .on', sh)?.textContent || '✨', name, rec, time: $('#ttime').value || '', size: Number(chipVal(sh, 'size')) || 1 };
+        const data = { emoji: $('.emoji-pick .on', sh)?.textContent || '✨', name, rec, time: $('#ttime').value || '', size: Number(chipVal(sh, 'size')) || 1,
+          steps: $('#tsteps').value.split('\n').map(x => x.trim()).filter(Boolean).slice(0, 10), essential: $('#tess').classList.contains('on') };
         if (isNew) S.tasks.push({ id: uid(), created: dkey(), last: null, count: 0, ...data });
         else Object.assign(S.tasks.find(x => x.id === t.id), data);
         save(); scheduleSync(); closeSheet(); render();
@@ -678,7 +736,7 @@ function levelUp(from, to) {
     <div class="lv">Niveau ${to}</div>
     <p><b>${evolved ? (s1.key === 'egg' ? `${esc(S.pet.name)} est né ! 🐣` : `${esc(S.pet.name)} a évolué : ${s2.name} !`) : `${esc(S.pet.name)} grandit 🌱`}</b></p>
     <button class="btn block">Trop bien ✨</button></div>`;
-  document.body.appendChild(el); confetti(evolved ? 90 : 50); vibrate([30, 60, 30]);
+  document.body.appendChild(el); confetti(evolved ? 90 : 50); vibrate([30, 60, 30]); sfx('level');
   el.onclick = () => { el.remove(); render(); };
 }
 
@@ -696,6 +754,9 @@ document.addEventListener('click', e => {
     }
     case 'pet': awakeUntil = Date.now() + 15e3; petReact('wiggle'); vibrate(10); break;
     case 'focus': focusSheet(); break;
+    case 'step': toggleStep(id, Number(a.dataset.i)); break;
+    case 'badday': S.badDay = isBadDay() ? null : dkey(); save(); render(); toast(S.badDay ? '🌧️ Mode petit jour. Juste l\'essentiel, c\'est déjà beaucoup 💜' : 'Retour au programme normal'); break;
+    case 'toggle-sound': S.settings.sound = S.settings.sound === false; save(); render(); if (S.settings.sound) sfx('done'); break;
     case 'add-task': tab === 'notes' ? noteSheet() : taskSheet(); break;
     case 'edit-task': taskSheet(S.tasks.find(x => x.id === id)); break;
     case 'presets': presetsSheet(); break;
