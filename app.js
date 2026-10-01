@@ -970,4 +970,8 @@ if (!S.onboarded) onboarding();
 else setTimeout(() => say(pick(stageOf(levelInfo().lvl).key === 'egg' ? MSG.egg : MSG[petMood()])), 600);
 scheduleSync(800);
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => {});
+if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (reloaded) return; reloaded = true; location.reload(); });
+}
