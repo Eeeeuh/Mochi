@@ -95,7 +95,7 @@ function defaults() {
     pet: { name: 'Mochi', color: 'lilac', eq: {} },
     owned: ['lilac'], xp: 0, coins: 0,
     tasks: [], notes: [], log: {}, bonus: {},
-    settings: { server: 'https://ntfy.sh', topic: '', enabled: false, recapOn: true, recap: '08:30', sound: true },
+    settings: { server: 'https://ntfy.sh', topic: '', enabled: false, recapOn: true, recap: '08:30', sound: true, theme: 'auto' },
     stepLog: {}, badDay: null,
     sched: {},
   };
@@ -353,6 +353,13 @@ function refreshHeader() {
   if (bar) { bar.style.width = `${Math.round(li.cur / li.need * 100)}%`; $('#xplbl').innerHTML = `<b>Niveau ${li.lvl}</b>`; $('#xpnum').textContent = `${li.cur} / ${li.need} XP`; }
   const ps = $('.pet-stage'); if (ps) ps.textContent = `${stageOf(li.lvl).name} · Nv ${li.lvl}`;
 }
+function applyTheme() {
+  const t = S.settings.theme || 'auto', r = document.documentElement;
+  if (t === 'auto') delete r.dataset.theme; else r.dataset.theme = t;
+  const dark = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = dark ? '#16131d' : '#f6f1ea';
+}
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme); } catch (e) {}
 function render() {
   document.documentElement.dataset.night = isNight() ? '1' : '0';
   $('.nav button[data-tab=pet]').innerHTML = `<span class="ic">🎀</span>${esc(S.pet.name.slice(0, 10))}`;
@@ -486,6 +493,10 @@ function viewSettings() {
   <div class="section">
     <div class="card"><h4>🐣 Ton compagnon</h4>
       <div class="field"><label>Son nom</label><input class="input" id="petname" maxlength="16" value="${esc(S.pet.name)}"></div></div>
+
+    <div class="card"><h4>🎨 Apparence</h4>
+      <div class="seg">${[['auto', 'Auto'], ['light', 'Clair'], ['dark', 'Sombre']].map(([v, l]) => `<button class="chip ${(s.theme || 'auto') === v ? 'on' : ''}" data-act="theme" data-v="${v}">${l}</button>`).join('')}</div>
+      <p class="hint">Auto suit le réglage de ton téléphone.</p></div>
 
     <div class="card"><h4>🔊 Sons</h4>
       <div class="toggle"><span>Petits sons doux</span><button class="switch ${S.settings.sound !== false ? 'on' : ''}" data-act="toggle-sound"></button></div></div>
@@ -756,6 +767,7 @@ document.addEventListener('click', e => {
     case 'focus': focusSheet(); break;
     case 'step': toggleStep(id, Number(a.dataset.i)); break;
     case 'badday': S.badDay = isBadDay() ? null : dkey(); save(); render(); toast(S.badDay ? '🌧️ Mode petit jour. Juste l\'essentiel, c\'est déjà beaucoup 💜' : 'Retour au programme normal'); break;
+    case 'theme': S.settings.theme = a.dataset.v; save(); applyTheme(); render(); break;
     case 'toggle-sound': S.settings.sound = S.settings.sound === false; save(); render(); if (S.settings.sound) sfx('done'); break;
     case 'add-task': tab === 'notes' ? noteSheet() : taskSheet(); break;
     case 'edit-task': taskSheet(S.tasks.find(x => x.id === id)); break;
@@ -951,6 +963,7 @@ document.addEventListener('visibilitychange', () => {
 setInterval(() => { if (dkey() !== lastDay) { lastDay = dkey(); render(); scheduleSync(); } }, 60e3);
 window.addEventListener('online', () => scheduleSync(300));
 
+applyTheme();
 render();
 handleLinks();
 if (!S.onboarded) onboarding();
