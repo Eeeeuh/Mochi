@@ -79,6 +79,10 @@ const ITEMS = {
   scarf: { name: 'Écharpe', slot: 'neck', price: 80, ic: '🧣' },
   beret: { name: 'Béret', slot: 'head', price: 100, ic: '🎨' },
   shades: { name: 'Lunettes de soleil', slot: 'face', price: 120, ic: '🕶️' },
+  beanie: { name: 'Bonnet', slot: 'head', price: 70, ic: '' },
+  halo: { name: 'Auréole', slot: 'head', price: 150, ic: '' },
+  bowtie: { name: 'Nœud papillon', slot: 'neck', price: 50, ic: '' },
+  cape: { name: 'Cape', slot: 'neck', price: 110, ic: '' },
   crown: { name: 'Couronne', slot: 'head', price: 250, ic: '👑' },
 };
 const STAGES = [
@@ -95,9 +99,9 @@ function defaults() {
     pet: { name: 'Mochi', color: 'lilac', eq: {} },
     owned: ['lilac'], xp: 0, coins: 0,
     tasks: [], notes: [], log: {}, bonus: {},
-    settings: { server: 'https://ntfy.sh', topic: '', enabled: false, recapOn: true, recap: '08:30', sound: true, theme: 'auto' },
+    settings: { server: 'https://ntfy.sh', topic: '', enabled: false, recapOn: true, recap: '08:30', sound: true, theme: 'auto', nudgeOn: true, nudge: '17:30' },
     stepLog: {}, badDay: null,
-    mood: {}, wins: {}, pets: {}, breath: {}, adv: null, souv: {}, decor: {}, lampOn: null, checkinSkip: null,
+    mood: {}, wins: {}, pets: {}, quests: {}, evening: {}, focus: {}, tips: {}, breath: {}, adv: null, souv: {}, decor: {}, lampOn: null, checkinSkip: null,
     sched: {},
   };
 }
@@ -168,7 +172,7 @@ function completeTask(id, k = dkey(), fromEl, quiet) {
   const t = S.tasks.find(x => x.id === id);
   if (!t || isDoneOn(t, k)) return false;
   const sz = SIZES[t.size] || SIZES[1];
-  (S.log[k] = S.log[k] || []).push({ id, xp: sz.xp, c: sz.c, prev: t.last || null, prevDone: t.doneAt || null });
+  (S.log[k] = S.log[k] || []).push({ id, xp: sz.xp, c: sz.c, at: Date.now(), prev: t.last || null, prevDone: t.doneAt || null });
   if (!t.last || t.last < k) t.last = k;
   if (t.rec.type === 'once') t.doneAt = k;
   t.count = (t.count || 0) + 1;
@@ -222,11 +226,16 @@ function toggleStep(id, i, k = dkey()) {
 
 // ---------------------------------------------------------------- streak / stats
 function activeDays() { return Object.keys(S.log).filter(k => S.log[k].length).sort(); }
-function streak() {
+function streak() { // un jour de pause isolé ne casse pas la série
   const set = new Set(activeDays());
   let k = dkey(), n = 0;
   if (!set.has(k)) k = addDays(k, -1);
-  while (set.has(k)) { n++; k = addDays(k, -1); }
+  for (let guard = 0; guard < 4000; guard++) {
+    if (set.has(k)) { n++; k = addDays(k, -1); continue; }
+    const prev = addDays(k, -1);
+    if (set.has(prev)) { k = prev; continue; }
+    break;
+  }
   return n;
 }
 function totalDone() { return Object.values(S.log).reduce((a, l) => a + l.length, 0); }
@@ -234,7 +243,9 @@ function totalDone() { return Object.values(S.log).reduce((a, l) => a + l.length
 // ---------------------------------------------------------------- pet rendering
 function isNight() { const h = new Date().getHours(); return h >= 22 || h < 7; }
 let awakeUntil = 0;
+let forceSleep = 0;
 function petMood() {
+  if (Date.now() < forceSleep) return 'sleep';
   if (isNight() && Date.now() > awakeUntil) return 'sleep';
   const k = dkey(), list = todayTasks(), done = list.filter(t => isDoneOn(t, k)).length;
   if (list.length && done === list.length) return 'joy';
@@ -306,6 +317,8 @@ function headItem(id) {
     case 'flower': return `<g transform="translate(64 74)">${[0, 72, 144, 216, 288].map(a => `<ellipse rx="7" ry="11" cy="-9" fill="#ffc2d6" transform="rotate(${a})"/>`).join('')}<circle r="6" fill="#ffd166"/></g>`;
     case 'party': return `<g transform="translate(100 66) rotate(-8)"><path d="M-20 0 L0 -50 L20 0Z" fill="#7cc6fe"/><path d="M-13 -16 L13 -16 M-7 -32 L7 -32" stroke="#ffd166" stroke-width="5"/><circle cy="-52" r="7" fill="#ff7fa3"/></g>`;
     case 'beret': return `<g transform="translate(96 64) rotate(-10)"><ellipse rx="40" ry="13" fill="#e2566f"/><ellipse cy="-6" rx="34" ry="12" fill="#ef6b83"/><path d="M0 -17 L2 -27" stroke="#c94660" stroke-width="5" stroke-linecap="round"/></g>`;
+    case 'beanie': return `<g transform="translate(100 68)"><path d="M-38 8 Q-36 -30 0 -34 Q36 -30 38 8 Z" fill="#3a50d9"/><rect x="-42" y="2" width="84" height="14" rx="7" fill="#2a3aa6"/><circle cy="-36" r="7" fill="#f5c02e"/></g>`;
+    case 'halo': return `<ellipse cx="100" cy="46" rx="27" ry="7" fill="none" stroke="#f5c02e" stroke-width="5"/><ellipse cx="100" cy="46" rx="27" ry="7" fill="none" stroke="#fff3c4" stroke-width="1.5" opacity=".8"/>`;
     case 'crown': return `<g transform="translate(100 62)"><path d="M-28 4 L-30 -24 L-15 -10 L0 -30 L15 -10 L30 -24 L28 4Z" fill="#f7c948" stroke="#e0a82e" stroke-width="2" stroke-linejoin="round"/><circle cx="0" cy="-8" r="4" fill="#ff6b8b"/><circle cx="-18" cy="-4" r="3" fill="#7cc6fe"/><circle cx="18" cy="-4" r="3" fill="#7cc6fe"/></g>`;
   }
   return '';
@@ -316,6 +329,8 @@ function faceItem(id) {
   return '';
 }
 function neckItem(id) {
+  if (id === 'bowtie') return `<g transform="translate(100 173)"><path d="M0 0L-19 -10V10Z M0 0L19 -10V10Z" fill="#e8634a"/><circle r="4.500" fill="#c4442c"/></g>`;
+  if (id === 'cape') return `<path d="M32 150 Q22 178 38 192 L58 176Z M168 150 Q178 178 162 192 L142 176Z" fill="#e8634a"/><path d="M48 160 Q100 180 152 160 L154 169 Q100 189 46 169Z" fill="#c4442c"/>`;
   if (id === 'scarf') return `<path d="M36 160 Q100 182 164 160 L166 172 Q100 194 34 172Z" fill="#7cc6fe"/><path d="M130 170 L138 196 L152 192 L142 166Z" fill="#5fb2ef"/>`;
   return '';
 }
@@ -455,6 +470,8 @@ const ICONS = {
   chev: 'M9 6l6 6-6 6',
   arrow: 'M5 12h14 M13 6l6 6-6 6',
   book: 'M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z M5 17a3 3 0 0 1 3-3h11',
+  mic: 'M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z M6 11a6 6 0 0 0 12 0 M12 17v4 M9 21h6',
+  moon: 'M20 14.500A8 8 0 1 1 9.500 4 6.500 6.500 0 0 0 20 14.500z',
   leaf: 'M5 19C5 10 10 5 20 4c0 10-5 15-14 15z M5 19l7-7',
 };
 const ico = (n, s = 22, sw = 1.8) => `<svg class="ico" viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[n]}"/></svg>`;
@@ -570,6 +587,7 @@ function render() {
   const html = ({ today: viewToday, routines: viewRoutines, notes: viewNotes, pet: viewPet, settings: viewSettings })[tab]();
   $('#app').innerHTML = `<div class="${animateNext ? 'view' : ''}">${html}</div>`; animateNext = false;
   if (tab === 'today' || tab === 'pet') { drawPet(); refreshHeader(); }
+  if (tab === 'today') notifyQuests();
 }
 
 // ---------------------------------------------------------------- scène
@@ -601,9 +619,11 @@ function viewToday() {
   ${sceneHTML()}
   <div class="qa">${qa.map(([a, ic, l, dn, ping]) => `<button class="qa-btn ${dn ? 'done' : ''}" data-act="${a}"><span class="tile">${ico(ic, 24)}</span>${l}${ping ? '<i class="dot ping"></i>' : dn ? '<i class="dot"></i>' : ''}</button>`).join('')}</div>
   ${xpHTML()}
+  ${questsHTML()}
   <div class="section">
     ${isBadDay(k) ? `<div class="badday">${ico('cloud', 26)}<div><b>Journée tranquille</b><p class="small">Seulement l'essentiel aujourd'hui. Le reste peut attendre, vraiment.</p></div><button class="btn ghost" style="padding:9px 13px" data-act="badday">Revenir</button></div>`
       : `<button class="linkbtn" data-act="badday">${ico('cloud', 16)}Journée difficile ? Ne garder que l'essentiel</button>`}
+    ${new Date().getHours() >= 18 && !(S.evening || {})[k] ? `<button class="focus-row" data-act="evening" style="margin-bottom:12px"><span class="ft"><b>Bilan du soir</b><span>Deux minutes pour poser la journée.</span></span><span class="go">${ico('moon', 18, 2)}</span></button>` : ''}
     ${list.length && done < list.length ? `<button class="focus-row" data-act="focus" style="margin-bottom:18px"><span class="ft"><b>Juste une chose</b><span>Je t'en choisis une, tu fais 5 minutes.</span></span><span class="go">${ico('arrow', 18, 2.2)}</span></button>` : ''}
     <div class="section-head"><h2>Aujourd'hui</h2><span class="sub">${done}/${list.length} fait${done > 1 ? 's' : ''}</span></div>
     ${list.length ? `<div class="tasks">${list.map(t => taskItem(t, k)).join('')}</div>`
@@ -677,7 +697,7 @@ function viewPet() {
     <div class="stat"><b>${streak()}</b><span>jours d'affilée</span></div>
     <div class="stat"><b>${totalDone()}</b><span>tâches faites</span></div>
     <div class="stat"><b>${activeDays().length}</b><span>jours actifs</span></div>
-  </div></div>
+  </div><p class="hint" style="text-align:center">Un jour de pause ne casse pas ta série.</p></div>
   <div class="section"><div class="section-head"><h2>Ta semaine</h2><span class="sub">tâches et humeur</span></div>${weekChart()}</div>
   <div class="section"><div class="section-head"><h2>Souvenirs</h2><span class="sub">${SOUV.filter(s => sv[s.id]).length}/${SOUV.length} trouvés en balade</span></div>
     <div class="grid">${SOUV.map(s => sv[s.id] ? `<div class="shop-item"><div class="ic">${souvSVG(s, 52)}</div><div class="nm">${s.name}</div><div class="pr">${sv[s.id] > 1 ? `x${sv[s.id]}` : ''}</div></div>` : `<div class="shop-item lock-q"><div class="ic">${souvSVG(s, 52)}</div><div class="nm">???</div><div class="pr"></div></div>`).join('')}</div></div>
@@ -744,6 +764,8 @@ function viewSettings() {
       <div class="toggle"><span>Activer les rappels</span><button class="switch ${s.enabled ? 'on' : ''}" data-act="toggle-notif" aria-label="Rappels"></button></div>
       <div class="toggle"><span>Récap du matin</span><button class="switch ${s.recapOn ? 'on' : ''}" data-act="toggle-recap" aria-label="Récap"></button></div>
       <div class="field"><label for="recap">Heure du récap</label><input class="input" type="time" id="recap" value="${esc(s.recap)}"></div>
+      <div class="toggle"><span>Coup de pouce de l'après-midi</span><button class="switch ${s.nudgeOn !== false ? 'on' : ''}" data-act="toggle-nudge" aria-label="Coup de pouce"></button></div>
+      <div class="field"><label for="nudge">Heure du coup de pouce</label><input class="input" type="time" id="nudge" value="${esc(s.nudge || '17:30')}"></div>
       <button class="btn soft block" data-act="test-notif">Envoyer une notif de test</button>
       <p class="hint">Les rappels sont programmés jusqu'à 3 jours à l'avance, y compris le retour de ${esc(S.pet.name)} quand il part en balade. Ouvre l'appli au moins une fois tous les 3 jours pour qu'ils restent à jour.<br>Garde ton sujet secret : quiconque le connaît peut lire tes rappels.</p>
       <details class="small"><summary class="muted">Avancé</summary>
@@ -862,7 +884,7 @@ function noteSheet(n) {
   const [rd, rt] = (n.remind || '').split('T');
   const k = dkey();
   openSheet(`<h3>${isNew ? 'Nouvelle note' : 'Modifier la note'}</h3>
-    <div class="field"><textarea class="input" id="ntext" maxlength="500" placeholder="Appeler le médecin, racheter du lait…">${esc(n.text)}</textarea></div>
+    <div class="field dictate"><textarea class="input" id="ntext" maxlength="500" placeholder="Appeler le médecin, racheter du lait…">${esc(n.text)}</textarea>${(window.SpeechRecognition || window.webkitSpeechRecognition) ? `<button type="button" class="mic" id="mic" aria-label="Dicter">${ico('mic', 20)}</button>` : ''}</div>
     <div class="field"><label>Me le rappeler</label>${chipGroup('when', [['', 'Non'], ['1h', 'Dans 1 h'], ['tonight', 'Ce soir'], ['tomorrow', 'Demain matin'], ['custom', 'Choisir…']], n.remind ? 'custom' : '')}</div>
     <div class="row" data-custom><input class="input" type="date" id="rdate" value="${rd || k}"><input class="input" type="time" id="rtime" value="${rt || '18:00'}"></div>
     <div class="toggle"><span>📌 Épingler sur l'accueil</span><button class="switch ${n.pinned ? 'on' : ''}" id="npin"></button></div>
@@ -871,6 +893,19 @@ function noteSheet(n) {
     const sync = () => $('[data-custom]', sh).classList.toggle('hidden', chipVal(sh, 'when') !== 'custom');
     bindChips(sh, sync); sync();
     $('#npin').onclick = e => e.currentTarget.classList.toggle('on');
+    const SRC = window.SpeechRecognition || window.webkitSpeechRecognition, mic = $('#mic');
+    if (mic && SRC) {
+      let rec = null;
+      mic.onclick = () => {
+        if (rec) { rec.stop(); return; }
+        rec = new SRC(); rec.lang = 'fr-FR'; rec.interimResults = true; rec.continuous = false;
+        const ta = $('#ntext'), base = ta.value ? ta.value + ' ' : '';
+        rec.onresult = ev => { ta.value = base + [...ev.results].map(r => r[0].transcript).join(' '); };
+        rec.onend = () => { rec = null; mic.classList.remove('rec'); };
+        rec.onerror = () => toast('Micro indisponible');
+        mic.classList.add('rec'); try { rec.start(); vibrate(10); } catch (_) { rec = null; mic.classList.remove('rec'); }
+      };
+    }
     if (isNew) setTimeout(() => $('#ntext').focus(), 300);
     sh.onclick = e => {
       const a = e.target.closest('[data-act]'); if (!a) return;
@@ -904,28 +939,37 @@ function focusSheet(skip = []) {
   if (!pool.length) return closeSheet();
   // le plus petit effort d'abord, puis ce qui attend depuis le plus longtemps
   pool.sort((a, b) => a.size - b.size || lateDays(b, k) - lateDays(a, k));
-  const t = pool[0];
+  const t = pool[0]; let mins = 5;
   openSheet(`<div class="focus"><div class="big">${t.emoji}</div><div class="tname">${esc(t.name)}</div>
-      <p class="muted small">Pas besoin de finir. Juste commencer.</p>
-      <div class="ring hidden"><svg width="170" height="170"><circle cx="85" cy="85" r="76" stroke="var(--accent-soft)" stroke-width="12" fill="none"/><circle id="ringfg" cx="85" cy="85" r="76" stroke="var(--accent)" stroke-width="12" fill="none" stroke-linecap="round" stroke-dasharray="477.5" stroke-dashoffset="0"/></svg><div class="timer" id="timer">5:00</div></div>
-      <div class="sheet-actions" style="flex-direction:column">
-        <button class="btn" data-act="go5">Lancer 5 minutes</button>
+      <p class="muted small" id="fhint">Pas besoin de finir. Juste commencer.</p>
+      <div class="chips" id="fdur" style="justify-content:center;margin:10px 0 2px">${[5, 15, 25].map(m => `<button class="chip ${m === 5 ? 'on' : ''}" data-m="${m}">${m} min</button>`).join('')}</div>
+      <div class="ring hidden" id="fring"><svg width="170" height="170"><circle cx="85" cy="85" r="76" stroke="var(--accent-soft)" stroke-width="12" fill="none"/><circle id="ringfg" cx="85" cy="85" r="76" stroke="var(--btn)" stroke-width="12" fill="none" stroke-linecap="round" stroke-dasharray="477.5" stroke-dashoffset="0"/></svg><div class="timer" id="timer">5:00</div></div>
+      <div class="f-pet hidden" id="fpet">${petSVG({ lvl: levelInfo().lvl, mood: 'calm' })}</div>
+      <div class="sheet-actions" style="flex-direction:column" id="fact">
+        <button class="btn" data-act="go">Lancer</button>
         <button class="btn soft" data-act="fdone">C'est fait</button>
         ${pending.length > 1 ? '<button class="btn ghost" data-act="fnext">Une autre</button>' : ''}
       </div></div>`,
   sh => {
     sh.onclick = e => {
+      const c = e.target.closest('#fdur .chip');
+      if (c) { mins = Number(c.dataset.m); $$('#fdur .chip', sh).forEach(x => x.classList.toggle('on', x === c)); $('#timer').textContent = `${mins}:00`; return; }
       const a = e.target.closest('[data-act]'); if (!a) return;
       if (a.dataset.act === 'fnext') { clearInterval(focusTimer); focusSheet([...skip, t.id]); }
-      if (a.dataset.act === 'fdone') { clearInterval(focusTimer); completeTask(t.id, k, a); confetti(30); closeSheet(); render(); }
-      if (a.dataset.act === 'go5') {
-        a.remove(); $('.ring', sh).classList.remove('hidden');
-        const end = Date.now() + 5 * 60e3;
+      if (a.dataset.act === 'fdone') { clearInterval(focusTimer); toggleTask(t.id, a); confetti(30); closeSheet(); }
+      if (a.dataset.act === 'go') {
+        a.remove(); $('#fdur').classList.add('hidden'); $('#fring').classList.remove('hidden'); $('#fpet').classList.remove('hidden');
+        $('#fhint').textContent = `${S.pet.name} reste avec toi.`;
+        const total = mins * 60e3, end = Date.now() + total;
         const tick = () => {
           const left = Math.max(0, end - Date.now());
           $('#timer').textContent = `${Math.floor(left / 6e4)}:${pad(Math.floor(left / 1e3) % 60)}`;
-          $('#ringfg').setAttribute('stroke-dashoffset', 477.5 * (1 - left / 3e5));
-          if (!left) { clearInterval(focusTimer); vibrate([200, 100, 200]); $('#timer').textContent = '0:00'; toast('5 minutes ! Tu continues ou tu t\'arrêtes, les deux sont ok '); }
+          $('#ringfg').setAttribute('stroke-dashoffset', 477.5 * (1 - left / total));
+          if (!left) {
+            clearInterval(focusTimer); vibrate([200, 100, 200]); sfx('level');
+            S.focus = S.focus || {}; S.focus[k] = (S.focus[k] || 0) + mins; save(); reward(Math.round(mins * .6), 1);
+            $('#fhint').textContent = 'Terminé. Tu continues ou tu t\'arrêtes, les deux sont très bien.'; $('#fpet').innerHTML = petSVG({ lvl: levelInfo().lvl, mood: 'joy' });
+          }
         };
         tick(); focusTimer = setInterval(tick, 500);
       }
@@ -950,6 +994,65 @@ function onboarding() {
     };
   });
   sheetLocked = true;
+}
+
+
+// ---------------------------------------------------------------- quêtes du jour
+const todayLog = () => S.log[dkey()] || [];
+const QUESTS = [
+  { id: 'tasks3', t: 'Faire 3 tâches', n: 3, v: () => todayLog().length },
+  { id: 'morning', t: 'Une tâche avant midi', n: 1, v: () => todayLog().filter(e => e.at && new Date(e.at).getHours() < 12).length },
+  { id: 'small', t: 'Faire une petite tâche', n: 1, v: () => todayLog().filter(e => (S.tasks.find(t => t.id === e.id) || {}).size === 1).length },
+  { id: 'breath', t: 'Respirer une fois', n: 1, v: () => (S.breath || {})[dkey()] || 0 },
+  { id: 'win', t: 'Noter une petite victoire', n: 1, v: () => ((S.wins || {})[dkey()] || []).length },
+  { id: 'hug', t: 'Câliner ton compagnon', n: 1, v: () => ((S.pets || {})[dkey()] || 0) >= 3 ? 1 : 0 },
+  { id: 'mood', t: 'Dire comment tu te sens', n: 1, v: () => ((S.mood || {})[dkey()] || {}).m ? 1 : 0 },
+  { id: 'note', t: 'Vider ta tête dans le pense-bête', n: 1, v: () => S.notes.filter(n => n.created && dkey(new Date(n.created)) === dkey()).length },
+  { id: 'focus', t: 'Faire une séance de concentration', n: 1, v: () => (S.focus || {})[dkey()] ? 1 : 0 },
+];
+function dailyQuests(k = dkey()) { return [...QUESTS].sort((a, b) => (hash(k + a.id) < hash(k + b.id) ? -1 : 1)).slice(0, 3); }
+function questsHTML() {
+  const k = dkey(), qs = dailyQuests(k), st = (S.quests || {})[k] || { claimed: [] }, nc = qs.filter(q => st.claimed.includes(q.id)).length;
+  return `<div class="section" style="margin-top:18px"><div class="section-head"><h2>Quêtes du jour</h2><span class="sub">${nc}/${qs.length}</span></div><div class="quests">${qs.map(q => {
+    const v = Math.min(q.n, q.v()), ok = v >= q.n, cl = st.claimed.includes(q.id);
+    return `<div class="quest ${cl ? 'claimed' : ok ? 'ready' : ''}" data-q="${q.id}"><div class="q-txt"><b>${q.t}</b><div class="bar"><i style="width:${Math.round(v / q.n * 100)}%"></i></div></div>${cl ? `<span class="q-ok">${ico('check', 18, 2.6)}</span>` : ok ? `<button class="btn q-claim" data-act="claim" data-id="${q.id}">${COIN(14)}+3</button>` : `<span class="q-n">${v}/${q.n}</span>`}</div>`;
+  }).join('')}</div></div>`;
+}
+function claimQuest(id, el) {
+  const k = dkey(); S.quests = S.quests || {}; const st = (S.quests[k] = S.quests[k] || { claimed: [], seen: [] });
+  if (st.claimed.includes(id)) return; st.claimed.push(id);
+  floatText('+5 XP', el); sfx('done'); vibrate(15); reward(5, 3);
+  if (dailyQuests(k).every(q => st.claimed.includes(q.id))) { reward(0, 5); toast('Toutes les quêtes sont faites : +5 pièces'); confetti(50); }
+  save(); setTimeout(render, 380);
+}
+let questsInit = false;
+function notifyQuests() {
+  const first = !questsInit; questsInit = true;
+  const k = dkey(); S.quests = S.quests || {}; const st = (S.quests[k] = S.quests[k] || { claimed: [], seen: [] }); st.seen = st.seen || [];
+  const fresh = dailyQuests(k).filter(q => q.v() >= q.n && !st.seen.includes(q.id));
+  if (!fresh.length) return;
+  fresh.forEach(q => st.seen.push(q.id)); save();
+  if (!first) { toast(`Quête accomplie : ${fresh[0].t}`); sfx('step'); }
+}
+
+// ---------------------------------------------------------------- bilan du soir
+function eveningSheet() {
+  const k = dkey(), list = todayTasks(k), done = list.filter(t => isDoneOn(t, k)), left = list.filter(t => !isDoneOn(t, k));
+  const xpDay = (S.log[k] || []).reduce((a, e) => a + e.xp, 0), lvl = levelInfo().lvl, all = list.length && !left.length;
+  const msg = !list.length ? 'Une journée sans programme, c\'est très bien aussi.' : all ? 'Tout est fait. Tu peux vraiment te reposer.' : done.length ? `${done.length} chose${done.length > 1 ? 's' : ''} de faite${done.length > 1 ? 's' : ''}, c'est ça qui compte.` : 'Une journée sans tâche faite, ça arrive. Demain est un autre jour.';
+  openSheet(`<h3 style="text-align:center">Bilan du soir</h3><div class="mood-pet">${petSVG({ lvl, mood: all ? 'joy' : 'calm' })}</div>
+    <p style="text-align:center;font-weight:700;margin:6px 0 14px">${msg}</p>
+    <div class="stats" style="margin-bottom:14px"><div class="stat"><b>${done.length}</b><span>tâches faites</span></div><div class="stat"><b>${xpDay}</b><span>XP gagnés</span></div><div class="stat"><b>${streak()}</b><span>jours d'affilée</span></div></div>
+    ${left.length ? `<div class="field"><label>Ça peut attendre demain</label><div class="chips">${left.map(t => `<span class="chip">${t.emoji} ${esc(t.name)}</span>`).join('')}</div></div>` : ''}
+    <div class="field"><label for="ewin">Une petite victoire à noter ? (facultatif)</label><input class="input" id="ewin" maxlength="140" placeholder="Même minuscule"></div>
+    <div class="sheet-actions"><button class="btn block" data-act="e-go">Bonne nuit</button></div>`,
+  sh => { sh.onclick = e => {
+    if (!e.target.closest('[data-act=e-go]')) return;
+    const w = $('#ewin').value.trim(); S.evening = S.evening || {}; const first = !S.evening[k]; S.evening[k] = true;
+    if (w) { S.wins = S.wins || {}; (S.wins[k] = S.wins[k] || []).push(w); }
+    save(); closeSheet(); if (first) { reward(3, 1); toast('Bonne nuit. +3 XP'); }
+    forceSleep = Date.now() + 25e3; render(); sfx('undo'); setTimeout(() => say('Zzz…', 4000), 300);
+  }; });
 }
 
 // ---------------------------------------------------------------- humeur du jour
@@ -1156,6 +1259,9 @@ document.addEventListener('click', e => {
   switch (act) {
     case 'toggle': if (Date.now() - swipedAt > 450) toggleTask(id, a); break;
     case 'checkin': checkinSheet(); break;
+    case 'evening': eveningSheet(); break;
+    case 'claim': claimQuest(id, a); break;
+    case 'toggle-nudge': S.settings.nudgeOn = S.settings.nudgeOn === false; save(); scheduleSync(); render(); break;
     case 'breath': breathSheet(); break;
     case 'hug': hug(); break;
     case 'adv': advSheet(); break;
@@ -1235,6 +1341,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const id = e.target.id;
   if (id === 'petname') { S.pet.name = e.target.value.trim() || 'Mochi'; save(); toast('Nom enregistré'); render(); }
+  if (id === 'nudge') { S.settings.nudge = e.target.value || '17:30'; save(); scheduleSync(); }
   if (id === 'recap') { S.settings.recap = e.target.value || '08:30'; save(); scheduleSync(); }
   if (id === 'server') { S.settings.server = (e.target.value.trim() || 'https://ntfy.sh').replace(/\/$/, ''); save(); }
   if (id === 'importfile') {
@@ -1250,6 +1357,8 @@ function newTopic() { const r = crypto.getRandomValues(new Uint8Array(9)); retur
 if (!S.settings.topic) { S.settings.topic = newTopic(); save(); }
 
 const WINDOW = 70 * 3600e3; // ntfy.sh accepte jusqu'à 3 jours de délai
+const snoozeAction = (title, message, tags) => ({ action: 'http', label: 'Dans 1 h', url: `${S.settings.server}/`, method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ topic: S.settings.topic, title, message, delay: '1h', priority: 4, tags, click: appUrl() }), clear: true });
 function buildDesired() {
   const want = {}, now = Date.now(), k0 = dkey(), url = appUrl();
   const ok = d => d.getTime() > now + 30e3 && d.getTime() < now + WINDOW;
@@ -1266,8 +1375,15 @@ function buildDesired() {
       want[seq] = {
         at: when, title: `${t.emoji} ${t.name}`, message: msgs[parseInt(hash(seq), 36) % msgs.length],
         tags: ['alarm_clock'], priority: 4, click: url,
-        actions: [{ action: 'view', label: '✅ C\'est fait', url: `${url}?done=${t.id}&day=${k}`, clear: true }],
+        actions: [{ action: 'view', label: 'C\'est fait', url: `${url}?done=${t.id}&day=${k}`, clear: true }, snoozeAction(`${t.emoji} ${t.name}`, 'Petit rappel, comme prévu.', ['alarm_clock'])],
       };
+    }
+    if (S.settings.nudgeOn !== false) {
+      const when = atTime(k, S.settings.nudge || '17:30');
+      if (ok(when)) {
+        const left = (i === 0 ? todayTasks(k).filter(t => !isDoneOn(t, k)) : S.tasks.filter(t => projectedDue(t, k))).length;
+        if (left > 0) want[`u${k.replace(/-/g, '')}`] = { at: when, title: `Il reste ${left} petite${left > 1 ? 's' : ''} chose${left > 1 ? 's' : ''}`, message: 'Juste une ? Je t\'aide à choisir.', tags: ['seedling'], priority: 3, click: `${url}?focus=1` };
+      }
     }
     if (S.settings.recapOn && S.settings.recap) {
       const when = atTime(k, S.settings.recap);
@@ -1284,7 +1400,7 @@ function buildDesired() {
     if (n.done || !n.remind) continue;
     const when = new Date(n.remind);
     if (!ok(when)) continue;
-    want[`n${n.id}`] = { at: when, title: '📝 Pense-bête', message: n.text, tags: ['memo'], priority: 4, click: url, actions: [{ action: 'view', label: '✅ C\'est fait', url: `${url}?note=${n.id}`, clear: true }] };
+    want[`n${n.id}`] = { at: when, title: 'Pense-bête', message: n.text, tags: ['memo'], priority: 4, click: url, actions: [{ action: 'view', label: 'C\'est fait', url: `${url}?note=${n.id}`, clear: true }, snoozeAction('Pense-bête', n.text, ['memo'])] };
   }
   if (S.adv && S.adv.end > now) {
     const when = new Date(S.adv.end);
@@ -1359,6 +1475,13 @@ function handleLinks() {
     const n = S.notes.find(x => x.id === p.get('note'));
     if (n && !n.done) { n.done = true; n.doneAt = new Date().toISOString(); if (!n.rewarded) { n.rewarded = true; reward(NOTE_XP, 1); } save(); scheduleSync(); msg = '📝 Note cochée !'; }
   }
+  const shared = [p.get('title'), p.get('text'), p.get('url')].filter(Boolean).join('\n').trim();
+  if (shared && !p.get('done') && !p.get('note')) {
+    S.notes.push({ id: uid(), created: new Date().toISOString(), done: false, text: shared.slice(0, 500), remind: '', pinned: false });
+    save(); scheduleSync(); msg = 'Ajouté à ton pense-bête'; tab = 'notes'; render();
+  }
+  if (p.get('shortcut') === 'note') setTimeout(() => noteSheet(), 500);
+  if (p.get('shortcut') === 'focus' || p.get('focus')) setTimeout(() => focusSheet(), 600);
   if (p.toString()) history.replaceState(null, '', location.pathname);
   if (msg) setTimeout(() => { toast(msg); petReact('happy'); }, 400);
 }
@@ -1380,6 +1503,12 @@ handleLinks();
 if (!S.onboarded) onboarding();
 else setTimeout(() => { if (!advActive()) say(pick(stageOf(levelInfo().lvl).key === 'egg' ? MSG.egg : MSG[petMood()] || MSG.calm)); }, 700);
 checkAdv(); maybeCheckin();
+setTimeout(() => {
+  if (!S.onboarded || $('#sheet').classList.contains('show')) return;
+  S.tips = S.tips || {};
+  if (!S.tips.swipe && S.tasks.length) { S.tips.swipe = 1; save(); toast('Astuce : balaie une tâche vers la droite pour la valider'); }
+  else if (!S.tips.hold && totalDone() >= 1) { S.tips.hold = 1; save(); toast(`Astuce : reste appuyé·e sur ${S.pet.name} pour un câlin`); }
+}, 5500);
 scheduleSync(800);
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => {});

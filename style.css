@@ -380,3 +380,19 @@ textarea.input { min-height: 90px; resize: vertical; }
 .pinned-ic { color: var(--gold-ink); }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
+
+/* ---------- quêtes, dictée, concentration ---------- */
+.quests { display: flex; flex-direction: column; gap: 8px; }
+.quest { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border: 1.5px solid var(--line); background: var(--card); border-radius: 14px; transition: border-color .25s, background .25s, opacity .3s; }
+.q-txt { flex: 1; min-width: 0; } .q-txt b { display: block; font-size: 14.5px; margin-bottom: 7px; }
+.quest .bar { height: 6px; } .quest .bar i { background: var(--btn); }
+.q-n { font-size: 13px; font-weight: 800; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.quest.ready { border-color: var(--xp); background: color-mix(in srgb, var(--xp) 12%, var(--card)); }
+.quest.ready .bar i { background: var(--xp); }
+.q-claim { padding: 8px 12px; border-radius: 12px; font-size: 14px; animation: soft 1.8s ease-in-out infinite; }
+@keyframes soft { 50% { transform: scale(1.06); } }
+.quest.claimed { opacity: .55; } .q-ok { color: var(--mint); }
+.dictate { position: relative; } .dictate textarea { padding-right: 56px; }
+.mic { position: absolute; right: 10px; bottom: 10px; width: 40px; height: 40px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); display: grid; place-items: center; transition: transform .15s; }
+.mic:active { transform: scale(.9); } .mic.rec { background: var(--heart); color: #fff; animation: ping 1s ease-in-out infinite; }
+.f-pet { width: 96px; height: 96px; margin: -4px auto 6px; } .f-pet svg { width: 100%; height: 100%; }
