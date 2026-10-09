@@ -433,7 +433,7 @@ document.addEventListener('pointermove', e => {
   const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
   if (sw.done) { if (Math.abs(dx) > 10 || Math.abs(dy) > 10) { clearTimeout(sw.hold); sw = null; } return; }
   if (!sw.on) {
-    if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) { sw.on = true; clearTimeout(sw.hold); sw.it.classList.add('swiping'); try { sw.it.setPointerCapture(e.pointerId); } catch (_) {} }
+    if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) { sw.on = true; clearTimeout(sw.hold); sw.it.classList.add('swiping'); document.body.classList.add('swiping'); try { sw.it.setPointerCapture(e.pointerId); } catch (_) {} }
     else if (Math.abs(dy) > 10) { clearTimeout(sw.hold); sw = null; return; }
   }
   if (sw.on) {
@@ -445,7 +445,7 @@ document.addEventListener('pointermove', e => {
 });
 const endSwipe = () => {
   if (!sw) return; clearTimeout(sw.hold); const { it, dx, on } = sw; sw = null; if (!on) return;
-  swipedAt = Date.now(); it.classList.remove('swiping'); it.style.transform = ''; it.parentNode.classList.remove('armed', 'armedL');
+  swipedAt = Date.now(); document.body.classList.remove('swiping'); it.classList.remove('swiping'); it.style.transform = ''; it.parentNode.classList.remove('armed', 'armedL');
   if (dx > 95) toggleTask(it.dataset.id, it); else if (dx < -95) skipTask(it.dataset.id);
 };
 document.addEventListener('pointerup', endSwipe); document.addEventListener('pointercancel', endSwipe);
@@ -487,6 +487,7 @@ const ICONS = {
   moon: 'M20 14.500A8 8 0 1 1 9.500 4 6.500 6.500 0 0 0 20 14.500z',
   leaf: 'M5 19C5 10 10 5 20 4c0 10-5 15-14 15z M5 19l7-7',
 };
+const fmtN = n => n >= 10000 ? `${(n / 1000).toFixed(1).replace('.0', '')}k` : String(n);
 const ico = (n, s = 22, sw = 1.8) => `<svg class="ico" viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[n]}"/></svg>`;
 const COIN = (s = 18) => `<svg class="coin-ic" viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="var(--gold)"/><circle cx="12" cy="12" r="6.2" fill="none" stroke="var(--gold-ink)" stroke-width="1.6" opacity=".75"/></svg>`;
 const CHECKSVG = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>';
@@ -568,17 +569,17 @@ $('#nav').addEventListener('click', e => { const b = e.target.closest('[data-tab
 function renderNav() {
   $('#nav').innerHTML = TABS.map(([id, ic, label]) => {
     const on = tab === id || (tab === 'settings' && id === 'today');
-    return `<button data-tab="${id}" class="${on ? 'on' : ''}"><span class="nic">${ico(ic, 22)}</span>${esc(label || S.pet.name.slice(0, 9))}</button>`;
+    return `<button data-tab="${id}" class="${on ? 'on' : ''}"><span class="nic">${ico(ic, 22)}</span><span class="lbl">${esc(label || S.pet.name)}</span></button>`;
   }).join('');
 }
 function header(title, sub) {
-  return `<header class="topbar"><div><div class="hello">${esc(sub)}</div><h1 class="title" style="margin:0">${esc(title)}</h1></div>
-    <div class="pills"><span class="pill" id="coins">${COIN()}<b>${S.coins}</b></span><button class="icon-btn" data-act="settings" aria-label="Réglages">${ico('sliders', 20)}</button></div></header>`;
+  return `<header class="topbar"><div class="hello">${esc(sub)}</div><h1 class="title">${esc(title)}</h1>
+    <div class="pills"><span class="pill" id="coins">${COIN()}<b>${fmtN(S.coins)}</b></span><button class="icon-btn" data-act="settings" aria-label="Réglages">${ico('sliders', 20)}</button></div></header>`;
 }
 let lastCoins = null, lastXp = null;
 function refreshHeader() {
   const cb = $('#coins b');
-  if (cb) { if (lastCoins !== null && S.coins !== lastCoins) { const p = $('#coins'); p.classList.remove('bump'); void p.offsetWidth; p.classList.add('bump'); } cb.textContent = S.coins; lastCoins = S.coins; }
+  if (cb) { if (lastCoins !== null && S.coins !== lastCoins) { const p = $('#coins'); p.classList.remove('bump'); void p.offsetWidth; p.classList.add('bump'); } cb.textContent = fmtN(S.coins); lastCoins = S.coins; }
   const li = levelInfo(), bar = $('#xpbar');
   if (bar) {
     bar.style.width = `${Math.round(li.cur / li.need * 100)}%`;
@@ -711,13 +712,13 @@ function viewNotes() {
   </div>
   <button class="fab" data-act="add-note" aria-label="Nouvelle note">${ico('plus', 26, 2.4)}</button>`;
 }
-const priceTag = n => `${COIN(14)}${n}`;
+const priceTag = n => `${COIN(14)}${fmtN(n)}`;
 function viewPet() {
   const li = levelInfo(), st = stageOf(li.lvl), next = STAGES.find(s => s.min > li.lvl), sv = S.souv || {};
   const wear = (id, slot) => petSVG({ lvl: 12, mood: 'calm', color: S.pet.color, eq: { [slot]: id } });
   return `${header(S.pet.name, `${st.name} · niveau ${li.lvl}`)}
   ${sceneHTML()}
-  ${xpHTML()}<div class="xpbox" style="margin-top:6px"><span class="hint">${next ? `Prochaine évolution : ${next.name} au niveau ${next.min}` : 'Forme finale atteinte'} · Ensemble depuis ${diffDays(S.created || dkey(), dkey()) + 1} jour${diffDays(S.created || dkey(), dkey()) > 0 ? 's' : ''}</span></div>
+  ${xpHTML()}<div class="xpbox" style="margin-top:6px"><span class="hint"><span class="hint-line">${next ? `Prochaine évolution : ${next.name} au niveau ${next.min}` : 'Forme finale atteinte'}</span><span class="hint-line">Ensemble depuis ${diffDays(S.created || dkey(), dkey()) + 1} jour${diffDays(S.created || dkey(), dkey()) > 0 ? 's' : ''}</span></span></div>
   <div class="section"><div class="stats">
     <div class="stat"><b>${streak()}</b><span>jours d'affilée</span></div>
     <div class="stat"><b>${totalDone()}</b><span>tâches faites</span></div>
@@ -767,7 +768,7 @@ function weekChart() {
 function viewSettings() {
   const s = S.settings, ok = s.enabled && s.topic;
   const host = s.server.replace(/^https?:\/\//, '').replace(/\/$/, '');
-  return `<header class="topbar"><div><div class="hello">Réglages</div><h1 class="title" style="margin:0">Paramètres</h1></div><button class="icon-btn" data-act="back" aria-label="Fermer">${ico('x', 20)}</button></header>
+  return `<header class="topbar"><div class="hello">Réglages</div><h1 class="title">Paramètres</h1><div class="pills"><button class="icon-btn" data-act="back" aria-label="Fermer">${ico('x', 20)}</button></div></header>
   <div class="section" style="margin-top:6px">
     <div class="card"><h4>${ico('pet', 20)}Ton compagnon</h4>
       <div class="field" style="margin:0"><label for="petname">Son nom</label><input class="input" id="petname" maxlength="16" value="${esc(S.pet.name)}"></div></div>
@@ -817,11 +818,12 @@ function openSheet(html, onMount) {
   sh.innerHTML = `<div class="grabber"></div>${html}`;
   ov.classList.remove('hidden');
   requestAnimationFrame(() => { ov.classList.add('show'); sh.classList.add('show'); });
+  document.documentElement.classList.add('sheet-open'); document.body.classList.add('sheet-open');
   onMount && onMount(sh);
 }
 function closeSheet() {
   const sh = $('#sheet'), ov = $('#overlay');
-  sh.classList.remove('show'); ov.classList.remove('show');
+  sh.classList.remove('show'); ov.classList.remove('show'); document.documentElement.classList.remove('sheet-open'); document.body.classList.remove('sheet-open');
   clearInterval(focusTimer); stopBreath(); cancelFocusNotif();
   setTimeout(() => ov.classList.add('hidden'), 250);
 }
@@ -1608,6 +1610,14 @@ function handleLinks() {
   if (p.toString()) history.replaceState(null, '', location.pathname);
   if (msg) setTimeout(() => { toast(msg); petReact('happy'); }, 400);
 }
+
+// ---- le bouton + se range quand on descend, revient quand on remonte
+let lastScrollY = 0;
+window.addEventListener('scroll', () => {
+  const y = window.scrollY, d = y - lastScrollY;
+  if (Math.abs(d) < 6) return; lastScrollY = y;
+  document.body.classList.toggle('fab-away', d > 0 && y > 220);
+}, { passive: true });
 
 // ---------------------------------------------------------------- boot
 let lastDay = dkey();
