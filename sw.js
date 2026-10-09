@@ -1,5 +1,5 @@
 // Service worker : l'app marche hors-ligne. Incrémente VERSION à chaque mise à jour.
-const VERSION = 'mochi-v4';
+const VERSION = 'mochi-v5';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

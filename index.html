@@ -5,24 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mochi</title>
 <meta name="description" content="Ton petit compagnon pour les tâches du quotidien.">
-<meta name="theme-color" content="#f6f1ea">
+<meta name="theme-color" content="#f1f4ee">
 <script>try{var t=JSON.parse(localStorage.getItem("mochi.v1")).settings.theme;if(t&&t!=="auto")document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app"></div>
-<nav class="nav"><div class="nav-inner">
-  <button data-tab="today" class="on"><span class="ic">🏡</span>Aujourd'hui</button>
-  <button data-tab="routines"><span class="ic">🔁</span>Routines</button>
-  <button data-tab="notes"><span class="ic">📝</span>Pense-bête</button>
-  <button data-tab="pet"><span class="ic">🎀</span>Mochi</button>
-</div></nav>
+<nav class="nav" aria-label="Navigation"><div class="nav-inner" id="nav"></div></nav>
 <div id="overlay" class="overlay hidden"></div>
 <div id="sheet" class="sheet"></div>
 <div id="toast" class="toast"></div>
