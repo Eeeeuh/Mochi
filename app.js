@@ -21,7 +21,7 @@ const hash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = (h * 33
 const DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 const DAYS_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
-const vibrate = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
+const vibrate = p => { try { if (S && S.settings && S.settings.vibe === false) return; navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
 
 // ---------------------------------------------------------------- sons doux (WebAudio, pas de fichiers)
 let audioCtx;
@@ -99,9 +99,9 @@ function defaults() {
     pet: { name: 'Mochi', color: 'lilac', eq: {} },
     owned: ['lilac'], xp: 0, coins: 0,
     tasks: [], notes: [], log: {}, bonus: {},
-    settings: { server: 'https://ntfy.sh', topic: '', enabled: false, recapOn: true, recap: '08:30', sound: true, theme: 'auto', nudgeOn: true, nudge: '17:30' },
+    settings: { server: 'https://ntfy.sh', topic: '', enabled: false, recapOn: true, recap: '08:30', sound: true, theme: 'auto', nudgeOn: true, nudge: '17:30', vibe: true },
     stepLog: {}, badDay: null,
-    mood: {}, wins: {}, pets: {}, quests: {}, evening: {}, focus: {}, tips: {}, breath: {}, adv: null, souv: {}, decor: {}, lampOn: null, checkinSkip: null,
+    mood: {}, wins: {}, pets: {}, quests: {}, evening: {}, focus: {}, tips: {}, ach: {}, skips: {}, weekDone: {}, advCount: 0, lastExport: null, breath: {}, adv: null, souv: {}, decor: {}, lampOn: null, checkinSkip: null,
     sched: {},
   };
 }
@@ -146,6 +146,7 @@ function lateDays(t, k) {
 const isBadDay = (k = dkey()) => S.badDay === k;
 function todayTasks(k = dkey()) {
   let base = S.tasks.filter(t => isDue(t, k) || isDoneOn(t, k));
+  const sk = (S.skips || {})[k] || []; if (sk.length) base = base.filter(t => isDoneOn(t, k) || !sk.includes(t.id));
   if (isBadDay(k)) { // mode petit jour : seulement l'essentiel (tâches marquées, sinon les 3 plus légères)
     const ess = base.filter(t => t.essential);
     const keep = new Set((ess.length ? ess : [...base].sort((a, b) => a.size - b.size).slice(0, 3)).map(t => t.id));
@@ -419,27 +420,39 @@ const releasePet = () => {
 document.addEventListener('pointerup', releasePet); document.addEventListener('pointercancel', releasePet);
 document.addEventListener('contextmenu', e => { if (e.target.closest('#pet')) e.preventDefault(); });
 
-// ---- balayer une tâche vers la droite pour la valider
+// ---- balayer : droite = fait, gauche = pas aujourd'hui ; appui long = modifier
 let sw = null, swipedAt = 0;
 document.addEventListener('pointerdown', e => {
   const it = e.target.closest('.trow .item[data-act=toggle]');
-  sw = it && !it.classList.contains('done') ? { it, x: e.clientX, y: e.clientY, dx: 0, on: false } : null;
+  if (!it) { sw = null; return; }
+  sw = { it, x: e.clientX, y: e.clientY, dx: 0, on: false, done: it.classList.contains('done') };
+  sw.hold = setTimeout(() => { if (sw && !sw.on) { const id = it.dataset.id; swipedAt = Date.now(); sw = null; vibrate(18); taskSheet(S.tasks.find(x => x.id === id)); } }, 520);
 });
 document.addEventListener('pointermove', e => {
   if (!sw) return;
   const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
+  if (sw.done) { if (Math.abs(dx) > 10 || Math.abs(dy) > 10) { clearTimeout(sw.hold); sw = null; } return; }
   if (!sw.on) {
-    if (dx > 12 && dx > Math.abs(dy) * 1.5) { sw.on = true; sw.it.classList.add('swiping'); try { sw.it.setPointerCapture(e.pointerId); } catch (_) {} }
-    else if (Math.abs(dy) > 10 || dx < -12) { sw = null; return; }
+    if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) { sw.on = true; clearTimeout(sw.hold); sw.it.classList.add('swiping'); try { sw.it.setPointerCapture(e.pointerId); } catch (_) {} }
+    else if (Math.abs(dy) > 10) { clearTimeout(sw.hold); sw = null; return; }
   }
-  if (sw.on) { sw.dx = Math.max(0, Math.min(dx, 170)); sw.it.style.transform = `translateX(${sw.dx}px)`; const armed = sw.dx > 95; if (armed !== sw.it.parentNode.classList.contains('armed')) { sw.it.parentNode.classList.toggle('armed', armed); if (armed) vibrate(12); } }
+  if (sw.on) {
+    sw.dx = Math.max(-170, Math.min(dx, 170)); sw.it.style.transform = `translateX(${sw.dx}px)`;
+    const row = sw.it.parentNode, r = sw.dx > 95, l = sw.dx < -95;
+    if ((r && !row.classList.contains('armed')) || (l && !row.classList.contains('armedL'))) vibrate(12);
+    row.classList.toggle('armed', r); row.classList.toggle('armedL', l);
+  }
 });
 const endSwipe = () => {
-  if (!sw) return; const { it, dx, on } = sw; sw = null; if (!on) return;
-  swipedAt = Date.now(); it.classList.remove('swiping'); it.style.transform = ''; it.parentNode.classList.remove('armed');
-  if (dx > 95) toggleTask(it.dataset.id, it);
+  if (!sw) return; clearTimeout(sw.hold); const { it, dx, on } = sw; sw = null; if (!on) return;
+  swipedAt = Date.now(); it.classList.remove('swiping'); it.style.transform = ''; it.parentNode.classList.remove('armed', 'armedL');
+  if (dx > 95) toggleTask(it.dataset.id, it); else if (dx < -95) skipTask(it.dataset.id);
 };
 document.addEventListener('pointerup', endSwipe); document.addEventListener('pointercancel', endSwipe);
+function skipTask(id) {
+  const k = dkey(); S.skips = S.skips || {}; (S.skips[k] = S.skips[k] || []).push(id); save(); scheduleSync(); sfx('undo'); vibrate(14);
+  toast('Mis de côté pour aujourd\'hui, sans souci'); render();
+}
 
 // ---------------------------------------------------------------- icônes (tracé maison, 24x24)
 const ICONS = {
@@ -582,12 +595,21 @@ function applyTheme() {
 }
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme); } catch (e) {}
 function render() {
-  document.documentElement.dataset.night = isNight() ? '1' : '0';
+  document.documentElement.dataset.night = isNight() ? '1' : '0'; document.documentElement.dataset.season = seasonOf();
   renderNav();
   const html = ({ today: viewToday, routines: viewRoutines, notes: viewNotes, pet: viewPet, settings: viewSettings })[tab]();
   $('#app').innerHTML = `<div class="${animateNext ? 'view' : ''}">${html}</div>`; animateNext = false;
   if (tab === 'today' || tab === 'pet') { drawPet(); refreshHeader(); }
   if (tab === 'today') notifyQuests();
+  checkAch();
+}
+
+
+// ---------------------------------------------------------------- saisons
+const seasonOf = (d = new Date()) => { const m = d.getMonth(); return m <= 1 || m === 11 ? 'winter' : m <= 4 ? 'spring' : m <= 7 ? 'summer' : 'autumn'; };
+function seasonHTML() {
+  const se = seasonOf(), n = { winter: 26, autumn: 12, spring: 11, summer: 9 }[se], cols = { autumn: ['#e07a2f', '#c9442a', '#e8b03a'], spring: ['#f6a9c6', '#fbd0e0', '#fff'], winter: ['#fff'], summer: ['#fff3a8'] }[se];
+  return `<div class="season ${se}" aria-hidden="true">${Array.from({ length: n }, (_, i) => `<span class="sp" style="--x:${(i * 53 + 11) % 100}%;--d:${7 + (i * 37) % 7}s;--dl:-${(i * 29) % 9}s;--s:${(.7 + ((i * 13) % 6) / 10).toFixed(1)};--c:${cols[i % cols.length]}"></span>`).join('')}</div>`;
 }
 
 // ---------------------------------------------------------------- scène
@@ -597,6 +619,7 @@ function sceneHTML() {
   return `<section class="scene" id="scene">${stars}<div class="sun"></div>
     <div class="cloud" style="top:54px;width:64px;animation-delay:-8s"></div><div class="cloud" style="top:104px;width:44px;animation-delay:-34s;animation-duration:80s"></div>
     <svg class="hills" viewBox="0 0 400 150" preserveAspectRatio="none" aria-hidden="true"><path class="h2" d="M0 70 C70 25 150 30 230 62 S350 50 400 28 V150 H0Z"/><path class="h1" d="M0 95 C90 62 190 112 290 84 S370 76 400 82 V150 H0Z"/></svg>
+    ${seasonHTML()}
     <div class="decor">${decorHTML()}</div>
     <div id="bubble" class="bubble"></div>
     <div id="pet" role="button" aria-label="Caresser ${esc(S.pet.name)}"></div>${away}</section>`;
@@ -619,16 +642,18 @@ function viewToday() {
   ${sceneHTML()}
   <div class="qa">${qa.map(([a, ic, l, dn, ping]) => `<button class="qa-btn ${dn ? 'done' : ''}" data-act="${a}"><span class="tile">${ico(ic, 24)}</span>${l}${ping ? '<i class="dot ping"></i>' : dn ? '<i class="dot"></i>' : ''}</button>`).join('')}</div>
   ${xpHTML()}
-  ${questsHTML()}
   <div class="section">
     ${isBadDay(k) ? `<div class="badday">${ico('cloud', 26)}<div><b>Journée tranquille</b><p class="small">Seulement l'essentiel aujourd'hui. Le reste peut attendre, vraiment.</p></div><button class="btn ghost" style="padding:9px 13px" data-act="badday">Revenir</button></div>`
       : `<button class="linkbtn" data-act="badday">${ico('cloud', 16)}Journée difficile ? Ne garder que l'essentiel</button>`}
+    ${reviewInfo().due ? `<button class="focus-row" data-act="week-due" style="margin-bottom:12px"><span class="ft"><b>Bilan de ta semaine</b><span>Un coup d'œil sur ce que tu as fait.</span></span><span class="go">${ico('star', 18, 2)}</span></button>` : ''}
     ${new Date().getHours() >= 18 && !(S.evening || {})[k] ? `<button class="focus-row" data-act="evening" style="margin-bottom:12px"><span class="ft"><b>Bilan du soir</b><span>Deux minutes pour poser la journée.</span></span><span class="go">${ico('moon', 18, 2)}</span></button>` : ''}
     ${list.length && done < list.length ? `<button class="focus-row" data-act="focus" style="margin-bottom:18px"><span class="ft"><b>Juste une chose</b><span>Je t'en choisis une, tu fais 5 minutes.</span></span><span class="go">${ico('arrow', 18, 2.2)}</span></button>` : ''}
     <div class="section-head"><h2>Aujourd'hui</h2><span class="sub">${done}/${list.length} fait${done > 1 ? 's' : ''}</span></div>
     ${list.length ? `<div class="tasks">${list.map(t => taskItem(t, k)).join('')}</div>`
       : `<div class="empty">${ico('sun', 34, 1.5)}<b>Rien de prévu aujourd'hui</b><p class="small">Ajoute une routine avec le bouton +, ou profite.</p></div>`}
+    ${(() => { const n = ((S.skips || {})[k] || []).filter(id => S.tasks.some(t => t.id === id && isDue(t, k) && !isDoneOn(t, k))).length; return n ? `<button class="linkbtn" style="margin-top:10px" data-act="unskip">${n} mise${n > 1 ? 's' : ''} de côté aujourd'hui · Tout remettre</button>` : ''; })()}
   </div>
+  ${questsHTML()}
   ${notesToday.length ? `<div class="section"><div class="section-head"><h2>À ne pas oublier</h2></div><div class="tasks">${notesToday.map(noteItem).join('')}</div></div>` : ''}
   <button class="fab" data-act="add-task" aria-label="Ajouter une routine">${ico('plus', 26, 2.4)}</button>`;
 }
@@ -640,7 +665,7 @@ function taskItem(t, k) {
   if (st.length && !done) meta.push(`<span class="m">${sd.length}/${st.length} étapes</span>`);
   meta.push(`<span class="m xp">+${sz.xp} XP</span>`);
   const sub = st.length && !done ? `<div class="steps-list">${st.map((x, i) => `<button class="step ${sd.includes(i) ? 'on' : ''}" data-act="step" data-id="${t.id}" data-i="${i}"><span class="sbox">${sd.includes(i) ? ico('check', 14, 3.4) : ''}</span>${esc(x)}</button>`).join('')}</div>` : '';
-  return `<div class="trow"><div class="swipe-bg">${ico('check', 22, 2.6)}Fait</div>
+  return `<div class="trow"><div class="swipe-bg l">${ico('check', 22, 2.6)}Fait</div><div class="swipe-bg r">Pas aujourd'hui</div>
     <div class="item ${done ? 'done' : ''}" data-act="toggle" data-id="${t.id}"><span class="check">${CHECKSVG}</span><span class="emoji">${t.emoji}</span>
     <div class="txt"><div class="name">${esc(t.name)}</div><div class="meta">${meta.join('')}</div></div></div>${sub}</div>`;
 }
@@ -692,15 +717,17 @@ function viewPet() {
   const wear = (id, slot) => petSVG({ lvl: 12, mood: 'calm', color: S.pet.color, eq: { [slot]: id } });
   return `${header(S.pet.name, `${st.name} · niveau ${li.lvl}`)}
   ${sceneHTML()}
-  ${xpHTML()}<div class="xpbox" style="margin-top:6px"><span class="hint">${next ? `Prochaine évolution : ${next.name} au niveau ${next.min}` : 'Forme finale atteinte'}</span></div>
+  ${xpHTML()}<div class="xpbox" style="margin-top:6px"><span class="hint">${next ? `Prochaine évolution : ${next.name} au niveau ${next.min}` : 'Forme finale atteinte'} · Ensemble depuis ${diffDays(S.created || dkey(), dkey()) + 1} jour${diffDays(S.created || dkey(), dkey()) > 0 ? 's' : ''}</span></div>
   <div class="section"><div class="stats">
     <div class="stat"><b>${streak()}</b><span>jours d'affilée</span></div>
     <div class="stat"><b>${totalDone()}</b><span>tâches faites</span></div>
     <div class="stat"><b>${activeDays().length}</b><span>jours actifs</span></div>
   </div><p class="hint" style="text-align:center">Un jour de pause ne casse pas ta série.</p></div>
-  <div class="section"><div class="section-head"><h2>Ta semaine</h2><span class="sub">tâches et humeur</span></div>${weekChart()}</div>
+  <div class="section"><div class="section-head"><h2>Ta semaine</h2><span class="sub">tâches et humeur</span></div>${weekChart()}<button class="btn soft block" style="margin-top:10px" data-act="week-open">Voir le bilan de la semaine</button></div>
+  <div class="section"><div class="section-head"><h2>Ce mois-ci</h2><span class="sub">jours actifs</span></div>${calHTML()}</div>
   <div class="section"><div class="section-head"><h2>Souvenirs</h2><span class="sub">${SOUV.filter(s => sv[s.id]).length}/${SOUV.length} trouvés en balade</span></div>
     <div class="grid">${SOUV.map(s => sv[s.id] ? `<div class="shop-item"><div class="ic">${souvSVG(s, 52)}</div><div class="nm">${s.name}</div><div class="pr">${sv[s.id] > 1 ? `x${sv[s.id]}` : ''}</div></div>` : `<div class="shop-item lock-q"><div class="ic">${souvSVG(s, 52)}</div><div class="nm">???</div><div class="pr"></div></div>`).join('')}</div></div>
+  <div class="section"><div class="section-head"><h2>Succès</h2><span class="sub">${Object.keys(S.ach || {}).length}/${ACH.length}</span></div>${achHTML()}</div>
   <div class="section"><div class="section-head"><h2>Journal</h2><span class="sub">humeurs et victoires</span></div>${journalHTML()}</div>
   <div class="section"><div class="section-head"><h2>Accessoires</h2><span class="sub">${priceTag(S.coins)}</span></div>
     <div class="grid mini">${Object.entries(ITEMS).map(([id, it]) => {
@@ -750,7 +777,8 @@ function viewSettings() {
       <p class="hint">Auto suit le réglage de ton téléphone.</p></div>
 
     <div class="card"><h4>${ico('volume', 20)}Sons</h4>
-      <div class="toggle"><span>Petits sons doux</span><button class="switch ${s.sound !== false ? 'on' : ''}" data-act="toggle-sound" aria-label="Sons"></button></div></div>
+      <div class="toggle"><span>Petits sons doux</span><button class="switch ${s.sound !== false ? 'on' : ''}" data-act="toggle-sound" aria-label="Sons"></button></div>
+      <div class="toggle"><span>Vibrations</span><button class="switch ${s.vibe !== false ? 'on' : ''}" data-act="toggle-vibe" aria-label="Vibrations"></button></div></div>
 
     <div class="card"><h4>${ico('bell', 20)}Notifications <span class="small muted" style="font-family:Figtree">via ntfy</span></h4>
       <p class="small"><span class="status-dot ${ok ? 'ok' : 'warn'}"></span>${ok ? `Activées · ${Object.keys(S.sched).length} rappel(s) programmé(s)` : 'Pas encore activées'}</p>
@@ -794,7 +822,7 @@ function openSheet(html, onMount) {
 function closeSheet() {
   const sh = $('#sheet'), ov = $('#overlay');
   sh.classList.remove('show'); ov.classList.remove('show');
-  clearInterval(focusTimer); stopBreath();
+  clearInterval(focusTimer); stopBreath(); cancelFocusNotif();
   setTimeout(() => ov.classList.add('hidden'), 250);
 }
 let sheetLocked = false;
@@ -930,7 +958,8 @@ function noteSheet(n) {
   });
 }
 
-let focusTimer;
+let focusTimer, focusNotif = false;
+function cancelFocusNotif() { if (focusNotif && S.settings.topic) ntfyFetch('DELETE', `/${S.settings.topic}/focus`).catch(() => {}); focusNotif = false; }
 function focusSheet(skip = []) {
   const k = dkey();
   const pending = todayTasks(k).filter(t => !isDoneOn(t, k));
@@ -942,31 +971,40 @@ function focusSheet(skip = []) {
   const t = pool[0]; let mins = 5;
   openSheet(`<div class="focus"><div class="big">${t.emoji}</div><div class="tname">${esc(t.name)}</div>
       <p class="muted small" id="fhint">Pas besoin de finir. Juste commencer.</p>
-      <div class="chips" id="fdur" style="justify-content:center;margin:10px 0 2px">${[5, 15, 25].map(m => `<button class="chip ${m === 5 ? 'on' : ''}" data-m="${m}">${m} min</button>`).join('')}</div>
+      <div class="chips" id="fdur" style="justify-content:center;margin:10px 0 2px">${[2, 5, 15, 25].map(m => `<button class="chip ${m === 5 ? 'on' : ''}" data-m="${m}">${m} min</button>`).join('')}</div>
       <div class="ring hidden" id="fring"><svg width="170" height="170"><circle cx="85" cy="85" r="76" stroke="var(--accent-soft)" stroke-width="12" fill="none"/><circle id="ringfg" cx="85" cy="85" r="76" stroke="var(--btn)" stroke-width="12" fill="none" stroke-linecap="round" stroke-dasharray="477.5" stroke-dashoffset="0"/></svg><div class="timer" id="timer">5:00</div></div>
       <div class="f-pet hidden" id="fpet">${petSVG({ lvl: levelInfo().lvl, mood: 'calm' })}</div>
       <div class="sheet-actions" style="flex-direction:column" id="fact">
         <button class="btn" data-act="go">Lancer</button>
         <button class="btn soft" data-act="fdone">C'est fait</button>
         ${pending.length > 1 ? '<button class="btn ghost" data-act="fnext">Une autre</button>' : ''}
-      </div></div>`,
+        <button class="linkbtn" style="justify-content:center;padding-bottom:0" data-act="stuck">Je n'arrive pas à démarrer</button>
+      </div><div class="tipbox hidden" id="ftip"><p id="ftxt"></p><div class="row"><button class="btn ghost" data-act="tipnext">Autre idée</button><button class="btn" data-act="tip2">OK, 2 minutes</button></div></div></div>`,
   sh => {
     sh.onclick = e => {
       const c = e.target.closest('#fdur .chip');
       if (c) { mins = Number(c.dataset.m); $$('#fdur .chip', sh).forEach(x => x.classList.toggle('on', x === c)); $('#timer').textContent = `${mins}:00`; return; }
       const a = e.target.closest('[data-act]'); if (!a) return;
+      const tipTxt = () => {
+        const fs = (t.steps || []).find((_, i) => !stepsDone(t, k).includes(i));
+        const tips = [...(fs ? [`Ton premier pas : « ${fs} ». Juste celui-là.`] : []), 'Promets-toi seulement 2 minutes. Tu pourras arrêter après.', 'Fais juste le tout premier geste : sors l\'objet, ouvre l\'appli, pose-le sur la table.', 'Mets une musique que tu aimes.', 'Fais-le debout, ou en marchant.', 'Commence par la partie la plus facile.', 'Dis à voix haute ce que tu vas faire.', 'Appelle ou écris à quelqu\'un pendant que tu le fais.'];
+        return pick(tips);
+      };
+      if (a.dataset.act === 'stuck' || a.dataset.act === 'tipnext') { $('#ftip').classList.remove('hidden'); $('#ftxt').textContent = tipTxt(); sfx('step'); return; }
+      if (a.dataset.act === 'tip2') { mins = 2; $$('#fdur .chip', sh).forEach(x => x.classList.toggle('on', x.dataset.m === '2')); $('#timer').textContent = '2:00'; $('#ftip').classList.add('hidden'); const g = $('[data-act=go]', sh); if (g) g.click(); return; }
       if (a.dataset.act === 'fnext') { clearInterval(focusTimer); focusSheet([...skip, t.id]); }
       if (a.dataset.act === 'fdone') { clearInterval(focusTimer); toggleTask(t.id, a); confetti(30); closeSheet(); }
       if (a.dataset.act === 'go') {
         a.remove(); $('#fdur').classList.add('hidden'); $('#fring').classList.remove('hidden'); $('#fpet').classList.remove('hidden');
         $('#fhint').textContent = `${S.pet.name} reste avec toi.`;
         const total = mins * 60e3, end = Date.now() + total;
+        if (S.settings.enabled && S.settings.topic && navigator.onLine) { focusNotif = true; ntfyFetch('POST', '/', { topic: S.settings.topic, sequence_id: 'focus', delay: String(Math.floor(end / 1000)), title: `${S.pet.name} : c'est fini`, message: `${mins} minutes sur « ${t.name} ». Bravo.`, tags: ['hourglass_flowing_sand'], click: appUrl() }).catch(() => { focusNotif = false; }); }
         const tick = () => {
           const left = Math.max(0, end - Date.now());
           $('#timer').textContent = `${Math.floor(left / 6e4)}:${pad(Math.floor(left / 1e3) % 60)}`;
           $('#ringfg').setAttribute('stroke-dashoffset', 477.5 * (1 - left / total));
           if (!left) {
-            clearInterval(focusTimer); vibrate([200, 100, 200]); sfx('level');
+            clearInterval(focusTimer); vibrate([200, 100, 200]); sfx('level'); focusNotif = false;
             S.focus = S.focus || {}; S.focus[k] = (S.focus[k] || 0) + mins; save(); reward(Math.round(mins * .6), 1);
             $('#fhint').textContent = 'Terminé. Tu continues ou tu t\'arrêtes, les deux sont très bien.'; $('#fpet').innerHTML = petSVG({ lvl: levelInfo().lvl, mood: 'joy' });
           }
@@ -1033,6 +1071,86 @@ function notifyQuests() {
   if (!fresh.length) return;
   fresh.forEach(q => st.seen.push(q.id)); save();
   if (!first) { toast(`Quête accomplie : ${fresh[0].t}`); sfx('step'); }
+}
+
+
+// ---------------------------------------------------------------- succès
+const sumVals = o => Object.values(o || {}).reduce((a, v) => a + (typeof v === 'number' ? v : 0), 0);
+const ACH = [
+  { id: 'first', n: 'Premier pas', d: 'Faire une première tâche', ic: 'check', ok: () => totalDone() >= 1 },
+  { id: 'ten', n: 'Dix de faites', d: '10 tâches au total', ic: 'check', ok: () => totalDone() >= 10 },
+  { id: 'fifty', n: 'Cinquante', d: '50 tâches au total', ic: 'leaf', ok: () => totalDone() >= 50 },
+  { id: 'hundred', n: 'Centurion', d: '100 tâches au total', ic: 'star', ok: () => totalDone() >= 100 },
+  { id: 'streak3', n: 'Trois jours', d: '3 jours d\'affilée', ic: 'flame', ok: () => streak() >= 3 },
+  { id: 'streak7', n: 'Une semaine', d: '7 jours d\'affilée', ic: 'flame', ok: () => streak() >= 7 },
+  { id: 'streak30', n: 'Un mois', d: '30 jours d\'affilée', ic: 'flame', ok: () => streak() >= 30 },
+  { id: 'perfect', n: 'Journée complète', d: 'Tout faire en un jour', ic: 'sun', ok: () => Object.keys(S.bonus || {}).length >= 1 },
+  { id: 'zen', n: 'Zen', d: 'Respirer 5 fois', ic: 'wind', ok: () => sumVals(S.breath) >= 5 },
+  { id: 'focus60', n: 'Concentré', d: '60 min de concentration', ic: 'target', ok: () => sumVals(S.focus) >= 60 },
+  { id: 'journal', n: 'Journal', d: 'Noter 7 humeurs', ic: 'smile', ok: () => Object.values(S.mood || {}).filter(m => m && m.m).length >= 7 },
+  { id: 'wins5', n: 'Fierté', d: 'Noter 5 victoires', ic: 'star', ok: () => Object.values(S.wins || {}).reduce((a, w) => a + w.length, 0) >= 5 },
+  { id: 'explorer', n: 'Explorateur', d: '5 balades', ic: 'compass', ok: () => (S.advCount || 0) >= 5 },
+  { id: 'collector', n: 'Collectionneur', d: '6 souvenirs trouvés', ic: 'leaf', ok: () => Object.keys(S.souv || {}).length >= 6 },
+  { id: 'cozy', n: 'Chez soi', d: 'Poser 3 objets de déco', ic: 'home', ok: () => Object.values(S.decor || {}).filter(Boolean).length >= 3 },
+  { id: 'grow', n: 'Il grandit', d: 'Atteindre le niveau 5', ic: 'heart', ok: () => levelInfo().lvl >= 5 },
+];
+let achInit = false;
+function checkAch() {
+  S.ach = S.ach || {}; const fresh = ACH.filter(a => !S.ach[a.id] && a.ok());
+  if (!fresh.length) { achInit = true; return; }
+  fresh.forEach(a => { S.ach[a.id] = Date.now(); if (achInit) S.coins += 5; });
+  save();
+  if (achInit) { toast(`Succès : ${fresh[0].n}${fresh.length > 1 ? ` (+${fresh.length - 1})` : ''}. +${5 * fresh.length} pièces`); sfx('level'); vibrate([20, 40, 20]); refreshHeader(); }
+  achInit = true;
+}
+function achHTML() {
+  return `<div class="grid ach">${ACH.map(a => `<div class="badge ${S.ach[a.id] ? 'on' : ''}"><div class="medal">${ico(a.ic, 24, 2)}</div><div class="nm">${a.n}</div><div class="pr">${a.d}</div></div>`).join('')}</div>`;
+}
+
+// ---------------------------------------------------------------- calendrier des jours actifs
+function calHTML() {
+  const k0 = dkey(), dow = (parseKey(k0).getDay() + 6) % 7, start = addDays(k0, -dow - 28);
+  const cells = Array.from({ length: 35 }, (_, i) => {
+    const k = addDays(start, i), n = (S.log[k] || []).length, fut = k > k0, lvl = n === 0 ? 0 : n < 2 ? 1 : n < 4 ? 2 : n < 6 ? 3 : 4;
+    return `<i class="cal-c l${lvl} ${fut ? 'fut' : ''} ${k === k0 ? 'today' : ''}" title="${n} tâche${n > 1 ? 's' : ''}"></i>`;
+  });
+  return `<div class="cal"><div class="cal-h">${['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(d => `<span>${d}</span>`).join('')}</div><div class="cal-g">${cells.join('')}</div></div>`;
+}
+
+// ---------------------------------------------------------------- bilan de la semaine
+const mondayKey = k => addDays(k, -((parseKey(k).getDay() + 6) % 7));
+function reviewInfo() {
+  const k = dkey(), d = new Date(), dow = d.getDay(), due = (dow === 0 && d.getHours() >= 17) || dow === 1;
+  const rk = mondayKey(dow === 1 ? addDays(k, -1) : k);
+  return { due: due && !(S.weekDone || {})[rk], rk, end: dow === 1 ? addDays(k, -1) : k, inWindow: due };
+}
+function weekStats(endKey) {
+  const keys = Array.from({ length: 7 }, (_, i) => addDays(endKey, i - 6)), sum = f => keys.reduce((a, k) => a + f(k), 0);
+  const moods = keys.map(k => (S.mood || {})[k]).filter(m => m && m.m);
+  return { done: sum(k => (S.log[k] || []).length), xp: sum(k => (S.log[k] || []).reduce((b, e) => b + e.xp, 0)), act: keys.filter(k => (S.log[k] || []).length).length,
+    avgM: moods.length ? moods.reduce((a, m) => a + m.m, 0) / moods.length : 0, focus: sum(k => (S.focus || {})[k] || 0), breaths: sum(k => (S.breath || {})[k] || 0), wins: sum(k => ((S.wins || {})[k] || []).length) };
+}
+function patterns() {
+  const k0 = dkey(), cnt = Array(7).fill(0), days = Array(7).fill(0), en = Array.from({ length: 7 }, () => []);
+  for (let i = 0; i < 56; i++) { const k = addDays(k0, -i), w = parseKey(k).getDay(); days[w]++; cnt[w] += (S.log[k] || []).length; const m = (S.mood || {})[k]; if (m && m.e) en[w].push(m.e); }
+  const out = [], total = cnt.reduce((a, b) => a + b, 0);
+  if (total >= 10) { let b = 0; for (let w = 1; w < 7; w++) if (cnt[w] / days[w] > cnt[b] / days[b]) b = w; if (cnt[b] > 0) out.push(`Ton jour le plus productif : ${DAYS_LONG[b]} (environ ${(cnt[b] / days[b]).toFixed(1).replace('.', ',')} tâches).`); }
+  const all = en.flat(); if (all.length >= 8) { let lo = -1, lv = 9; en.forEach((a, w) => { if (a.length >= 2) { const v = a.reduce((x, y) => x + y, 0) / a.length; if (v < lv) { lv = v; lo = w; } } }); if (lo >= 0 && lv < 2.2) out.push(`Ton énergie est souvent plus basse le ${DAYS_LONG[lo]}. Prévois léger ce jour-là.`); }
+  return out;
+}
+function weekReview(end, rk) {
+  end = end || dkey(); const st = weekStats(end), pv = weekStats(addDays(end, -7)), delta = st.done - pv.done, pt = patterns();
+  const msg = st.done === 0 ? 'Semaine calme. Ça arrive, on repart doucement.' : delta >= 0 ? 'Belle semaine. Tu peux être content·e de toi.' : 'Un peu moins que la semaine dernière, et c\'est normal. Chaque tâche compte.';
+  openSheet(`<h3>Ta semaine</h3><div class="wk-big"><b>${st.done}</b><span>tâche${st.done > 1 ? 's' : ''} faite${st.done > 1 ? 's' : ''}</span>${pv.done || st.done ? `<em class="${delta >= 0 ? 'up' : 'dn'}">${delta >= 0 ? '+' : ''}${delta} vs semaine d'avant</em>` : ''}</div>
+    <p style="font-weight:700;margin:4px 0 14px">${msg}</p>
+    <div class="stats" style="margin-bottom:10px"><div class="stat"><b>${st.act}/7</b><span>jours actifs</span></div><div class="stat"><b>${st.xp}</b><span>XP gagnés</span></div><div class="stat"><b>${st.focus}</b><span>min de concentration</span></div></div>
+    <div class="stats" style="margin-bottom:14px"><div class="stat"><b>${st.avgM ? `<span style="display:inline-block;width:30px;vertical-align:middle">${faceSVG(Math.round(st.avgM))}</span>` : '-'}</b><span>humeur moyenne</span></div><div class="stat"><b>${st.breaths}</b><span>respirations</span></div><div class="stat"><b>${st.wins}</b><span>victoires</span></div></div>
+    ${pt.length ? `<div class="field"><label>Ce que je remarque</label>${pt.map(x => `<p class="small" style="margin:0 0 6px;font-weight:600">${x}</p>`).join('')}</div>` : ''}
+    <div class="sheet-actions"><button class="btn block" data-act="wk-ok">${rk ? 'Merci, +5 XP' : 'Fermer'}</button></div>`,
+  sh => { sh.onclick = e => {
+    if (!e.target.closest('[data-act=wk-ok]')) return;
+    closeSheet(); if (rk && !(S.weekDone || {})[rk]) { S.weekDone = S.weekDone || {}; S.weekDone[rk] = true; save(); reward(5, 2); toast('Bilan de la semaine noté'); render(); }
+  }; });
 }
 
 // ---------------------------------------------------------------- bilan du soir
@@ -1188,7 +1306,7 @@ function advCollect() {
     const missing = SOUV.filter(s => !(S.souv || {})[s.id]); got = pick(missing.length ? missing : SOUV);
     S.souv = S.souv || {}; S.souv[got.id] = (S.souv[got.id] || 0) + 1;
   }
-  const story = pick(STORIES); S.adv = null; save(); scheduleSync(0);
+  const story = pick(STORIES); S.adv = null; S.advCount = (S.advCount || 0) + 1; save(); scheduleSync(0);
   openSheet(`<div style="text-align:center"><h3>${esc(S.pet.name)} est de retour</h3><p class="muted" style="margin:-8px 0 6px">Il ${story}</p>
     ${got ? `<div class="souv-hero">${souvSVG(got, 96)}</div><b class="disp" style="font-size:19px">${got.name}</b><div class="small muted">ajouté à tes souvenirs</div>` : '<div class="small muted" style="margin:14px 0">Pas de souvenir cette fois, mais une belle balade.</div>'}
     <div class="gain" style="display:flex;flex-direction:row;justify-content:center;gap:14px;margin:14px 0;align-items:center"><span class="coinr">${COIN(16)}+${a.coins}</span><span>+${a.xp} XP</span></div>
@@ -1260,6 +1378,10 @@ document.addEventListener('click', e => {
     case 'toggle': if (Date.now() - swipedAt > 450) toggleTask(id, a); break;
     case 'checkin': checkinSheet(); break;
     case 'evening': eveningSheet(); break;
+    case 'week-due': { const r = reviewInfo(); weekReview(r.end, r.rk); break; }
+    case 'week-open': { const r = reviewInfo(); weekReview(r.inWindow ? r.end : dkey(), r.due ? r.rk : null); break; }
+    case 'unskip': delete (S.skips || {})[dkey()]; save(); scheduleSync(); render(); break;
+    case 'toggle-vibe': S.settings.vibe = S.settings.vibe === false; save(); render(); if (S.settings.vibe) vibrate(20); break;
     case 'claim': claimQuest(id, a); break;
     case 'toggle-nudge': S.settings.nudgeOn = S.settings.nudgeOn === false; save(); scheduleSync(); render(); break;
     case 'breath': breathSheet(); break;
@@ -1328,6 +1450,7 @@ document.addEventListener('click', e => {
       if (!confirm('Générer un nouveau sujet ? Il faudra te réabonner dans ntfy.')) return;
       cancelAll().then(() => { S.settings.topic = newTopic(); save(); render(); scheduleSync(0); }); break;
     case 'export': {
+      S.lastExport = dkey(); save();
       const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' });
       const u = URL.createObjectURL(blob), l = document.createElement('a');
       l.href = u; l.download = `mochi-sauvegarde-${dkey()}.json`; l.click(); setTimeout(() => URL.revokeObjectURL(u), 2000); break;
@@ -1368,7 +1491,7 @@ function buildDesired() {
       if (!t.time) continue;
       const when = atTime(k, t.time);
       if (!ok(when)) continue;
-      const due = i === 0 ? isDue(t, k) && !isDoneOn(t, k) : projectedDue(t, k);
+      const due = i === 0 ? isDue(t, k) && !isDoneOn(t, k) && !((S.skips || {})[k] || []).includes(t.id) : projectedDue(t, k);
       if (!due) continue;
       const seq = `t${t.id}${k.replace(/-/g, '')}`;
       const msgs = ['C\'est le moment ! Une petite action et c\'est réglé 💜', `${S.pet.name} croit en toi ✨`, 'Juste commencer, c\'est déjà gagner 🌱'];
@@ -1509,6 +1632,11 @@ setTimeout(() => {
   if (!S.tips.swipe && S.tasks.length) { S.tips.swipe = 1; save(); toast('Astuce : balaie une tâche vers la droite pour la valider'); }
   else if (!S.tips.hold && totalDone() >= 1) { S.tips.hold = 1; save(); toast(`Astuce : reste appuyé·e sur ${S.pet.name} pour un câlin`); }
 }, 5500);
+setTimeout(() => {
+  if (!S.onboarded || !S.tasks.length || $('#sheet').classList.contains('show')) return;
+  S.tips = S.tips || {}; const since = diffDays(S.lastExport || S.created || dkey(), dkey()), last = S.tips.backupAt ? diffDays(S.tips.backupAt, dkey()) : 99;
+  if (since >= 14 && last >= 7) { S.tips.backupAt = dkey(); save(); toast('Pense à exporter ta sauvegarde : ⚙️ puis Exporter'); }
+}, 9000);
 scheduleSync(800);
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => {});
